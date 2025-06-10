@@ -7,7 +7,6 @@ from app.agents.tools import (
     edit_file_tool, edit_file_tool_def,
     list_files_tool, list_files_tool_def,
     run_tests_tool, run_tests_tool_def,
-    subtract_tool, subtract_tool_def
 )
 from app.orchestration.decomposer import TaskDecomposer
 from app.orchestration.orchestrator import Orchestrator
@@ -48,7 +47,6 @@ def main():
         coding_agent.add_tool(read_file_tool, read_file_tool_def)
         coding_agent.add_tool(edit_file_tool, edit_file_tool_def)
         coding_agent.add_tool(list_files_tool, list_files_tool_def)
-        coding_agent.add_tool(subtract_tool, subtract_tool_def)
 
         testing_agent = TestingAgent(name="TestingAgent", **common_kwargs)
         testing_agent.add_tool(read_file_tool, read_file_tool_def)
