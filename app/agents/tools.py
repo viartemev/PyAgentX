@@ -181,28 +181,6 @@ def run_tests_tool(input_data: Dict[str, Any]) -> str:
         return f"Критическая ошибка: Не удалось запустить тесты. Причина: {e}"
 
 
-def analyze_text_tool(input_data: Dict[str, Any]) -> str:
-    """
-    Анализирует текст и возвращает количество слов и символов.
-
-    Args:
-        input_data (Dict[str, Any]): Словарь, содержащий ключ 'text' с текстом для анализа.
-
-    Returns:
-        Строка с результатом в формате "Words: X, Characters: Y".
-    """
-    try:
-        text = input_data['text']
-        words = text.split()
-        num_words = len(words)
-        num_chars = len(text)
-        return f"Words: {num_words}, Characters: {num_chars}"
-    except KeyError:
-        return "Ошибка: в input_data отсутствует обязательный ключ 'text'."
-    except Exception as e:
-        return f"Ошибка при анализе текста: {e}"
-
-
 # Определения инструментов (Tool Definitions)
 read_file_tool_def = {
     "type": "function",
@@ -279,21 +257,6 @@ run_tests_tool_def = {
                 "path": {"type": "string", "description": "Путь к тестовому файлу или директории. По умолчанию - весь проект."}
             },
             "required": [],
-        },
-    },
-}
-
-analyze_text_tool_def = {
-    "type": "function",
-    "function": {
-        "name": "analyze_text_tool",
-        "description": "Анализирует текст и возвращает количество слов и символов.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "text": {"type": "string", "description": "Текст для анализа."}
-            },
-            "required": ["text"],
         },
     },
 }
