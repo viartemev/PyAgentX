@@ -78,9 +78,11 @@ class Orchestrator:
 
             # --- НАЧАЛО НОВОЙ ЛОГИКИ: ЦИКЛ ОБРАТНОЙ СВЯЗИ ---
             is_test_step = task.get("assignee") == "TestingAgent"
-            test_failed = "ПРОВАЛ" in result or "ОШИБКА" in result
+            # Более надежная проверка на провал
+            failure_keywords = ["ПРОВАЛ", "ОШИБКА", "error", "failed", "не увенчалась успехом"]
+            test_failed = is_test_step and any(keyword in result for keyword in failure_keywords)
 
-            if is_test_step and test_failed:
+            if test_failed:
                 print("\n\033[1;33m>>> ОБНАРУЖЕНА ОШИБКА В ТЕСТАХ. ЗАПУСК ЦИКЛА ОТЛАДКИ.\033[0m")
                 
                 evaluator_agent = self.worker_agents.get("EvaluatorAgent")
