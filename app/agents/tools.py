@@ -40,67 +40,84 @@ def list_files_tool(input_data: Dict[str, Any]) -> str:
         Отформатированное дерево файлов и директорий в виде строки.
     """
     path = input_data.get("path", ".")
-    
     if not os.path.isdir(path):
         return f"Ошибка: Путь '{path}' не является директорией или не существует."
 
     ignore_dirs = {'.git', '.idea', '.venv', '__pycache__', '.pytest_cache'}
     output = ""
-    
+
     for root, dirs, files in os.walk(path, topdown=True):
-        # Исключаем ненужные директории из дальнейшего обхода
         dirs[:] = [d for d in dirs if d not in ignore_dirs]
-        
         level = root.replace(path, '').count(os.sep)
         indent = ' ' * 4 * level
-        
-        # Чтобы не печатать имя корневой директории, если она совпадает с path
         if root != path:
             output += f"{indent}{os.path.basename(root)}/\n"
-        
         sub_indent = ' ' * 4 * (level + 1)
         for f in files:
             output += f"{sub_indent}{f}\n"
-            
     return output.strip()
 
 
 def edit_file_tool(input_data: Dict[str, Any]) -> str:
     """
-    Создает, перезаписывает или добавляет контент в файл.
-    Используй 'overwrite' для полной замены содержимого.
-    Используй 'append' для добавления в конец файла.
+    Создает, перезаписывает, добавляет или заменяет контент в файле.
+    - 'overwrite': Полностью перезаписывает файл.
+    - 'append': Добавляет контент в конец файла.
+    - 'replace': Заменяет один фрагмент строки на другой.
 
     Args:
         input_data (Dict[str, Any]): Словарь, содержащий:
             'path' (str): Путь к файлу.
-            'content' (str): Содержимое для записи.
-            'mode' (str, optional): Режим записи. 'overwrite' (по умолчанию) или 'append'.
+            'mode' (str): Режим работы ('overwrite', 'append', 'replace').
+            'content' (str, optional): Содержимое для 'overwrite' или 'append'.
+            'old_content' (str, optional): Исходный фрагмент для 'replace'.
+            'new_content' (str, optional): Новый фрагмент для 'replace'.
     """
     path = input_data.get("path")
-    content = input_data.get("content")
     mode = input_data.get("mode", "overwrite")
 
-    if not path or content is None:
-        return "Ошибка: Аргументы 'path' и 'content' обязательны."
-    
-    if mode not in ['overwrite', 'append']:
-        return "Ошибка: Недопустимый режим. Используйте 'overwrite' или 'append'."
+    if not path:
+        return "Ошибка: Аргумент 'path' обязателен."
+    if mode not in ['overwrite', 'append', 'replace']:
+        return "Ошибка: Недопустимый режим. Используйте 'overwrite', 'append' или 'replace'."
 
     try:
-        # Убедимся, что директория для файла существует
         directory = os.path.dirname(path)
         if directory:
             os.makedirs(directory, exist_ok=True)
-        
-        write_mode = "w" if mode == "overwrite" else "a"
-        
-        with open(path, write_mode, encoding="utf-8") as f:
-            f.write(content)
+
+        if mode == 'replace':
+            old_content = input_data.get("old_content")
+            new_content = input_data.get("new_content")
+            if old_content is None or new_content is None:
+                return "Ошибка: Для режима 'replace' необходимы 'old_content' и 'new_content'."
             
-        return f"Файл '{path}' успешно обновлен в режиме '{mode}'."
+            with open(path, "r", encoding="utf-8") as f:
+                file_content = f.read()
+            
+            if old_content not in file_content:
+                return f"Ошибка: Исходный фрагмент 'old_content' не найден в файле '{path}'."
+
+            file_content = file_content.replace(old_content, new_content, 1)
+            
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(file_content)
+            return f"Файл '{path}' успешно обновлен в режиме 'replace'."
+
+        else: # overwrite or append
+            content = input_data.get("content")
+            if content is None:
+                return f"Ошибка: Для режима '{mode}' обязателен аргумент 'content'."
+            
+            write_mode = "w" if mode == "overwrite" else "a"
+            with open(path, write_mode, encoding="utf-8") as f:
+                f.write(content)
+            return f"Файл '{path}' успешно обновлен в режиме '{mode}'."
+
+    except FileNotFoundError:
+        return f"Ошибка: Файл не найден по пути '{path}'."
     except Exception as e:
-        return f"Ошибка: Не удалось записать в файл '{path}': {e}"
+        return f"Ошибка: Не удалось выполнить операцию с файлом '{path}': {e}"
 
 
 def delete_file_tool(input_data: Dict[str, Any]) -> str:
@@ -136,43 +153,32 @@ def run_tests_tool(input_data: Dict[str, Any]) -> str:
     """
     path = input_data.get("path", ".")
     logging.info("Запуск pytest для пути: %s", path)
-    
     try:
-        # Используем тот же python-интерпретатор, в котором запущен агент, чтобы гарантировать
-        # использование правильного окружения и зависимостей.
         command = [sys.executable, "-m", "pytest", path]
-        
-        # Запускаем процесс с таймаутом, чтобы избежать вечного ожидания
         result = subprocess.run(
             command,
             capture_output=True,
             text=True,
-            timeout=120  # 2 минуты
+            timeout=120
         )
-
         output = f"Pytest stdout:\n{result.stdout}\n"
         if result.stderr:
             output += f"Pytest stderr:\n{result.stderr}\n"
-
         if result.returncode == 0:
             return f"УСПЕХ: Все тесты пройдены.\n\n{output}"
-        
-        # https://docs.pytest.org/en/latest/reference/exit-codes.html
-        # Код 1 = тесты упали, Код 2 = ошибка в pytest, Код 5 = нет тестов
         elif result.returncode == 1:
             return f"ПРОВАЛ: Некоторые тесты не прошли.\n\n{output}"
         elif result.returncode == 5:
-             return f"ПРЕДУПРЕЖДЕНИЕ: Pytest не нашел тесты для запуска по пути '{path}'.\n\n{output}"
+            return f"ПРЕДУПРЕЖДЕНИЕ: Pytest не нашел тесты для запуска по пути '{path}'.\n\n{output}"
         else:
             return f"ОШИБКА: Pytest завершился с кодом {result.returncode}.\n\n{output}"
-
     except FileNotFoundError:
         return "Критическая ошибка: команда 'pytest' не найдена."
     except subprocess.TimeoutExpired:
         return "Ошибка: Выполнение тестов заняло слишком много времени и было прервано."
     except Exception as e:
         logging.error("Непредвиденная ошибка при запуске pytest: %s", e, exc_info=True)
-        return f"Критическая ошибка: Не удалось запустить тесты. Причина: {e}" 
+        return f"Критическая ошибка: Не удалось запустить тесты. Причина: {e}"
 
 
 def analyze_text_tool(input_data: Dict[str, Any]) -> str:
@@ -190,7 +196,6 @@ def analyze_text_tool(input_data: Dict[str, Any]) -> str:
         words = text.split()
         num_words = len(words)
         num_chars = len(text)
-        # Возвращаем строку, а не кортеж, так как все инструменты возвращают строки
         return f"Words: {num_words}, Characters: {num_chars}"
     except KeyError:
         return "Ошибка: в input_data отсутствует обязательный ключ 'text'."
@@ -198,6 +203,45 @@ def analyze_text_tool(input_data: Dict[str, Any]) -> str:
         return f"Ошибка при анализе текста: {e}"
 
 
+def subtract(a: Real, b: Real) -> Real:
+    """
+    Возвращает разность a - b.
+
+    Args:
+        a (Real): Уменьшаемое.
+        b (Real): Вычитаемое.
+
+    Returns:
+        Real: Результат вычитания a - b.
+
+    Raises:
+        TypeError: Если аргументы не являются числовыми значениями.
+    """
+    if not isinstance(a, Real) or not isinstance(b, Real):
+        raise TypeError(f"subtract() ожидает числа, получили: {type(a)}, {type(b)}")
+    return a - b
+
+
+def subtract_tool(input_data: Dict[str, Any]) -> str:
+    """
+    Инструмент для вычитания одного числа из другого.
+
+    Args:
+        input_data (Dict[str, Any]): Словарь, содержащий ключи 'a' и 'b'.
+
+    Returns:
+        Результат вычитания в виде строки или сообщение об ошибке.
+    """
+    try:
+        a = input_data["a"]
+        b = input_data["b"]
+        result = subtract(a, b)
+        return f"Результат вычитания: {result}"
+    except (KeyError, TypeError) as e:
+        return f"Ошибка при вызове subtract_tool: {e}"
+
+
+# Определения инструментов (Tool Definitions)
 read_file_tool_def = {
     "type": "function",
     "function": {
@@ -232,15 +276,17 @@ edit_file_tool_def = {
     "type": "function",
     "function": {
         "name": "edit_file_tool",
-        "description": "Создает, перезаписывает или добавляет контент в файл. Режимы: 'overwrite', 'append'.",
+        "description": "Создает, перезаписывает, добавляет или заменяет контент в файле. Режимы: 'overwrite', 'append', 'replace'.",
         "parameters": {
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "Полный путь к файлу для записи."},
-                "content": {"type": "string", "description": "Полное новое содержимое файла."},
-                "mode": {"type": "string", "enum": ["overwrite", "append"], "description": "Режим записи."},
+                "path": {"type": "string", "description": "Полный путь к файлу."},
+                "mode": {"type": "string", "enum": ["overwrite", "append", "replace"], "description": "Режим записи."},
+                "content": {"type": "string", "description": "Содержимое для 'overwrite' или 'append'."},
+                "old_content": {"type": "string", "description": "Исходный фрагмент для 'replace'."},
+                "new_content": {"type": "string", "description": "Новый фрагмент для 'replace'."},
             },
-            "required": ["path", "content"],
+            "required": ["path", "mode"],
         },
     },
 }
