@@ -133,6 +133,11 @@ class Orchestrator:
                 result = agent.execute_task(briefing)
 
             logging.info(f"Результат шага {task['step']}: {result}")
+
+            if "достиг лимита итераций" in result:
+                logging.critical(f"Агент {assignee_name} не смог выполнить задачу {task['step']} и достиг лимита итераций. Выполнение прервано.")
+                print(f"КРИТИЧЕСКАЯ ОШИБКА: Агент {assignee_name} не справился с задачей. Проверьте лог agent_activity.log для деталей.")
+                return
             
             history_record = {
                 "step": task['step'],
