@@ -1,5 +1,5 @@
 """
-Модуль Оркестратора, который управляет выполнением плана задач.
+Orchestrator module that manages the execution of a task plan.
 """
 import logging
 import json
@@ -9,7 +9,7 @@ from app.orchestration.decomposer import TaskDecomposer
 
 class Orchestrator:
     """
-    Оркестратор управляет всем процессом: от декомпозиции цели до выполнения задач агентами.
+    The Orchestrator manages the entire process: from goal decomposition to task execution by agents.
     """
     def __init__(self, task_decomposer: TaskDecomposer, worker_agents: Dict[str, Agent]):
         self.task_decomposer = task_decomposer
@@ -17,62 +17,59 @@ class Orchestrator:
         self.execution_history: List[Dict[str, Any]] = []
 
     def _get_briefing(self, current_task: Dict[str, Any], plan: List[Dict[str, Any]], goal: str) -> str:
-        """Создает полный контекст (брифинг) для агента перед выполнением задачи."""
+        """Creates a full context (briefing) for an agent before task execution."""
         
-        # Формирование истории предыдущих шагов
         history_log = ""
         if not self.execution_history:
-            history_log = "Это первый шаг, предыдущих результатов нет.\n"
+            history_log = "This is the first step, there are no previous results.\n"
         else:
-            history_log += "**История выполнения:**\n"
+            history_log += "**Execution History:**\n"
             for record in self.execution_history:
-                history_log += f"- **Шаг {record['step']} ({record['assignee']})**: {record['task']}\n"
-                history_log += f"  - **Результат**: {record['result']}\n"
+                history_log += f"- **Step {record['step']} ({record['assignee']})**: {record['task']}\n"
+                history_log += f"  - **Result**: {record['result']}\n"
 
-        # Формирование полного плана
         plan_log = ""
         for step in plan:
             marker = "-->" if step['step'] == current_task['step'] else "   "
-            plan_log += f"{marker} Шаг {step['step']}: {step['task']} (Исполнитель: {step['assignee']})\n"
+            plan_log += f"{marker} Step {step['step']}: {step['task']} (Assignee: {step['assignee']})\n"
 
-        # Финальный брифинг
         briefing = f"""
-КОНТЕКСТ ЗАДАЧИ
+TASK CONTEXT
 ---------------------------------
-**Глобальная цель:** {goal}
+**Global Goal:** {goal}
 
-**ВЕСЬ ПЛАН ЗАДАЧ:**
+**ENTIRE TASK PLAN:**
 {plan_log}
-**ИСТОРИЯ ВЫПОЛНЕНИЯ:**
+**EXECUTION HISTORY:**
 {history_log}
 ---------------------------------
-**ВАША ТЕКУЩАЯ ЗАДАЧА (Шаг {current_task['step']}):**
+**YOUR CURRENT TASK (Step {current_task['step']}):**
 
-**Задача:** {current_task['task']}
-**Описание:** {current_task['description']}
+**Task:** {current_task['task']}
+**Description:** {current_task['description']}
 
-Проанализируйте всю предоставленную информацию, особенно результаты предыдущих шагов, и выполните свою задачу.
+Analyze all the provided information, especially the results of previous steps, and execute your task.
 """
         return briefing
 
     def _perform_code_review(self, task: Dict[str, Any], plan: List[Dict[str, Any]], goal: str) -> Tuple[bool, Optional[str]]:
-        """Выполняет шаг Code Review."""
-        logging.info("--- Начат этап Code Review ---")
+        """Performs the Code Review step."""
+        logging.info("--- Starting Code Review ---")
         reviewer_agent = self.worker_agents.get("ReviewerAgent")
         if not reviewer_agent:
-            logging.error("Агент ReviewerAgent не найден!")
-            return False, "Агент ReviewerAgent не был инициализирован."
+            logging.error("ReviewerAgent not found!")
+            return False, "ReviewerAgent was not initialized."
 
         briefing = self._get_briefing(task, plan, goal)
         review_result = reviewer_agent.execute_task(briefing)
 
-        logging.info(f"Результат Code Review: {review_result}")
+        logging.info(f"Code Review Result: {review_result}")
 
         if "LGTM" in review_result.upper():
-            logging.info("--- Code Review пройдено успешно ---")
+            logging.info("--- Code Review Passed Successfully ---")
             return True, None
         else:
-            logging.warning("--- Code Review выявило проблемы ---")
+            logging.warning("--- Code Review identified issues ---")
             return False, review_result
 
     def run(self, goal: str):
@@ -82,7 +79,7 @@ class Orchestrator:
 
         while current_step_index < len(plan):
             task = plan[current_step_index]
-            logging.info(f"--- Выполнение шага {task['step']}: {task['task']} ---")
+            logging.info(f"--- Executing Step {task['step']}: {task['task']} ---")
 
             if task.get("assignee") == "ReviewerAgent":
                 review_passed, suggestions = self._perform_code_review(task, plan, goal)
@@ -94,30 +91,30 @@ class Orchestrator:
                 }
 
                 if review_passed:
-                    history_record["result"] = "Успешно (LGTM)."
+                    history_record["result"] = "Success (LGTM)."
                     self.execution_history.append(history_record)
                     current_step_index += 1
                     continue
                 else:
-                    history_record["result"] = f"Провалено. Замечания: {suggestions}"
+                    history_record["result"] = f"Failed. Feedback: {suggestions}"
                     self.execution_history.append(history_record)
                     
-                    logging.warning("Ревью провалено. Создание задачи на исправление...")
+                    logging.warning("Review failed. Creating a task for correction...")
                     new_task_description = (
-                        "Агент-ревьюер нашел проблемы в коде, который ты написал. "
-                        f"Вот его комментарии: '{suggestions}'. "
-                        "Твоя задача — исправить код в соответствии с этими рекомендациями."
+                        "The reviewer agent found issues in the code you wrote. "
+                        f"Here are the comments: '{suggestions}'. "
+                        "Your task is to fix the code according to these recommendations."
                     )
                     
                     new_task = {
                         "step": float(task["step"]) + 0.1,
                         "assignee": "CodingAgent",
-                        "task": "Исправить код на основе замечаний Code Review.",
+                        "task": "Fix code based on Code Review feedback.",
                         "description": new_task_description,
                     }
                     
                     plan.insert(current_step_index + 1, new_task)
-                    logging.info(f"В план добавлена новая задача: {new_task}")
+                    logging.info(f"A new task has been added to the plan: {new_task}")
                     
                     current_step_index += 1
                     continue
@@ -126,17 +123,17 @@ class Orchestrator:
             agent = self.worker_agents.get(assignee_name)
             
             if not agent:
-                logging.error(f"Агент {assignee_name} не найден! Пропускаем шаг.")
-                result = f"Пропущено (агент '{assignee_name}' не найден)."
+                logging.error(f"Agent {assignee_name} not found! Skipping step.")
+                result = f"Skipped (agent '{assignee_name}' not found)."
             else:
                 briefing = self._get_briefing(task, plan, goal)
                 result = agent.execute_task(briefing)
 
-            logging.info(f"Результат шага {task['step']}: {result}")
+            logging.info(f"Result of step {task['step']}: {result}")
 
-            if "достиг лимита итераций" in result:
-                logging.critical(f"Агент {assignee_name} не смог выполнить задачу {task['step']} и достиг лимита итераций. Выполнение прервано.")
-                print(f"КРИТИЧЕСКАЯ ОШИБКА: Агент {assignee_name} не справился с задачей. Проверьте лог agent_activity.log для деталей.")
+            if "reached iteration limit" in result:
+                logging.critical(f"Agent {assignee_name} failed to complete task {task['step']} and reached the iteration limit. Execution aborted.")
+                print(f"CRITICAL ERROR: Agent {assignee_name} failed the task. Check agent_activity.log for details.")
                 return
             
             history_record = {
@@ -147,49 +144,49 @@ class Orchestrator:
             }
             self.execution_history.append(history_record)
 
-            if agent and agent.name == "TestingAgent" and "ПРОВАЛ" in result.upper():
-                logging.error("Тесты провалены! Запускаем процесс исправления.")
+            if agent and agent.name == "TestingAgent" and "FAIL" in result.upper():
+                logging.error("Tests failed! Initiating fix process.")
                 evaluator_agent = self.worker_agents.get("EvaluatorAgent")
                 if not evaluator_agent:
-                    logging.error("EvaluatorAgent не найден, невозможно проанализировать ошибку.")
+                    logging.error("EvaluatorAgent not found, cannot analyze the error.")
                     current_step_index += 1
                     continue
 
                 evaluator_briefing = (
-                    "Тесты провалились. Проанализируй следующий лог и сформулируй задачу по его исправлению.\n\n"
-                    "ЛОГ ОШИБКИ:\n"
+                    "The tests failed. Analyze the following log and formulate a task to fix it.\n\n"
+                    "ERROR LOG:\n"
                     f"{result}"
                 )
                 
                 fix_task_description = evaluator_agent.execute_task(evaluator_briefing)
-                logging.info(f"EvaluatorAgent предложил следующую задачу: {fix_task_description}")
+                logging.info(f"EvaluatorAgent suggested the following task: {fix_task_description}")
 
                 new_task = {
                     "step": float(task["step"]) + 0.1,
                     "assignee": "CodingAgent",
-                    "task": "Исправить код на основе проваленных тестов.",
+                    "task": "Fix code based on failed tests.",
                     "description": fix_task_description,
                 }
                 
                 plan.insert(current_step_index + 1, new_task)
-                logging.info(f"В план добавлена новая задача на исправление: {new_task}")
+                logging.info(f"A new fix task has been added to the plan: {new_task}")
 
             current_step_index += 1
 
-        logging.info("Все задачи выполнены. Цель достигнута.")
+        logging.info("All tasks completed. Goal achieved.")
 
     def _get_plan(self, goal: str) -> List[Dict[str, Any]]:
-        """Получает план от TaskDecomposer."""
-        logging.info("Получение плана от TaskDecomposer...")
+        """Gets the plan from the TaskDecomposer."""
+        logging.info("Getting plan from TaskDecomposer...")
         plan = self.task_decomposer.generate_plan(goal)
         if not plan:
-            logging.error("Не удалось составить план. Оркестратор останавливает работу.")
+            logging.error("Failed to create a plan. Orchestrator is stopping.")
             return []
         
-        logging.info("План успешно получен.")
-        print("\nСоставлен следующий план:")
+        logging.info("Plan successfully received.")
+        print("\nThe following plan has been created:")
         for step in plan:
-            print(f"- Шаг {step['step']}: {step['task']} (Исполнитель: {step['assignee']})")
+            print(f"- Step {step['step']}: {step['task']} (Assignee: {step['assignee']})")
         return plan
 
     # def _create_evaluator_briefing(self, failed_test_result: str, last_briefing: str) -> str:

@@ -18,10 +18,10 @@ from app.agents.roles import (
 )
 
 def main():
-    """Главная функция для запуска AI агента."""
+    """Main function to run the AI agent."""
     load_dotenv()
 
-    # Настройка логирования
+    # Setup logging
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s",
@@ -33,13 +33,13 @@ def main():
 
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        logging.error("Не найден ключ OPENAI_API_KEY в .env файле.")
-        print("Ошибка: Пожалуйста, убедитесь, что ваш .env файл содержит OPENAI_API_KEY.")
+        logging.error("OPENAI_API_KEY not found in .env file.")
+        print("Error: Please make sure your .env file contains OPENAI_API_KEY.")
         return
 
     try:
-        # 1. Инициализация команды агентов
-        logging.info("Инициализация команды агентов...")
+        # 1. Initialize the agent team
+        logging.info("Initializing agent team...")
         
         common_kwargs = {"api_key": api_key, "model": "o4-mini"}
 
@@ -70,26 +70,26 @@ def main():
         default_agent.add_tool(read_file_tool, read_file_tool_def)
         workers["DefaultAgent"] = default_agent
 
-        # Планировщик
+        # Planner
         planner = TaskDecomposer(api_key=api_key, model="o4-mini")
         
-        # Оркестратор теперь управляет командой
+        # The orchestrator now manages the team
         orchestrator = Orchestrator(
             task_decomposer=planner,
             worker_agents=workers
         )
 
-        # 2. Запрос цели и запуск оркестратора
-        goal = input("Пожалуйста, введите вашу высокоуровневую цель: ")
+        # 2. Request the goal and run the orchestrator
+        goal = input("Please enter your high-level goal: ")
         if not goal:
-            print("Цель не может быть пустой.")
+            print("Goal cannot be empty.")
             return
 
         orchestrator.run(goal)
 
     except Exception as e:
-        logging.critical("Произошла критическая ошибка: %s", e, exc_info=True)
-        print(f"\nКритическая ошибка: {e}")
+        logging.critical("A critical error occurred: %s", e, exc_info=True)
+        print(f"\nCritical Error: {e}")
 
 if __name__ == "__main__":
     main() 

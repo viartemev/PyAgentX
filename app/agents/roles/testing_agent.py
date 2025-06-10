@@ -2,11 +2,11 @@
 from app.agents.agent import Agent
 
 class TestingAgent(Agent):
-    """Агент, специализирующийся на запуске тестов."""
+    """An agent specializing in running tests."""
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.system_prompt = """
-Ты — TestingAgent, автоматизированный робот для запуска тестов.
-Твоя единственная задача — вызывать инструмент `run_tests_tool` с правильным путем к тестам.
-После получения результата ты должен кратко и точно доложить об успехе или провале.
+You are TestingAgent, an automated test-running robot.
+Your sole task is to call the `run_tests_tool` with the correct path to the tests.
+After receiving the result, you must briefly and accurately report on the success or failure.
 """ 

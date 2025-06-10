@@ -1,5 +1,5 @@
 """
-Модуль для декомпозиции высокоуровневой задачи на конкретные подзадачи.
+Module for decomposing a high-level task into specific subtasks.
 """
 import json
 import logging
@@ -44,158 +44,152 @@ DECOMPOSER_PROMPT = """
 
 class TaskDecomposer:
     """
-    Декомпозирует основную задачу на список подзадач с помощью LLM.
+    Decomposes the main task into a list of subtasks using an LLM.
     """
     def __init__(self, api_key: str, model: str = "gpt-4-turbo"):
         self.client = OpenAI(api_key=api_key)
         self.model = model
 
     def _parse_llm_response(self, content: Optional[str]) -> List[str]:
-        """Более гибко парсит ответ от LLM."""
+        """Parses the LLM response more flexibly."""
         if not content:
-            logging.warning("LLM вернул пустой ответ при декомпозиции.")
+            logging.warning("LLM returned an empty response during decomposition.")
             return []
         
         try:
-            # Пытаемся загрузить как полноценный JSON
+            # Try to load as a full JSON
             parsed_json = json.loads(content)
             
             if isinstance(parsed_json, list):
                 return [str(item) for item in parsed_json]
             
-            # Если это словарь, ищем в нем ключ, содержащий список
+            # If it's a dictionary, look for a key containing a list
             if isinstance(parsed_json, dict):
                 for key, value in parsed_json.items():
                     if isinstance(value, list):
-                        logging.info("Найден план в ключе '%s'", key)
+                        logging.info("Found plan in key '%s'", key)
                         return [str(item) for item in value]
             
-            logging.warning("Ответ LLM не является списком или не содержит списка. Ответ: %s", content)
+            logging.warning("LLM response is not a list and does not contain a list. Response: %s", content)
             return []
 
         except json.JSONDecodeError:
-            # Иногда LLM возвращает голый список без кавычек, пробуем его "починить"
-            logging.warning("Не удалось распарсить JSON. Ответ: %s", content)
-            # Это очень упрощенная попытка извлечь строки, может не сработать всегда
+            # Sometimes the LLM returns a raw list without quotes, try to "fix" it
+            logging.warning("Failed to parse JSON. Response: %s", content)
+            # This is a very simplified attempt to extract strings, may not always work
             cleaned_content = content.strip().replace("`", "")
             if cleaned_content.startswith('[') and cleaned_content.endswith(']'):
                 try:
                     return json.loads(cleaned_content)
                 except json.JSONDecodeError:
                     pass
-            logging.error("Не удалось извлечь план из ответа LLM.")
+            logging.error("Failed to extract plan from LLM response.")
             return []
 
     def generate_plan(self, goal: str) -> List[Dict[str, Any]]:
         """
-        Генерирует пошаговый план для достижения цели, назначая исполнителей.
-        # ... (остальной docstring без изменений)
+        Generates a step-by-step plan to achieve a goal, assigning executors.
         """
-        # Обновленный промпт с описанием ролей и требованием назначить исполнителя
+        # Updated prompt with role descriptions and requirement to assign an executor
         system_prompt = """
-Ты — элитный AI-планировщик, специализирующийся на декомпозиции сложных IT-задач для команды AI-агентов.
-Твоя задача — разбить высокоуровневую цель на детальный, последовательный план в формате JSON.
+You are an elite AI planner specializing in decomposing complex IT tasks for a team of AI agents.
+Your task is to break down a high-level goal into a detailed, sequential plan in JSON format.
 
-# СТРУКТУРА ПРОЕКТА (КРИТИЧЕСКИ ВАЖНО):
--   `app/`: Вся логика приложения находится здесь.
-    -   `app/agents/`: Код самих агентов.
-    -   `app/agents/tools.py`: **Файл с инструментами, которые используют агенты.**
-    -   `app/orchestration/`: Код планировщика и оркестратора.
--   `tests/`: Все тесты находятся здесь.
-    -   `tests/test_tools.py`: **Тесты для инструментов из `app/agents/tools.py`**
+# PROJECT STRUCTURE (CRITICALLY IMPORTANT):
+-   `app/`: All application logic is here.
+    -   `app/agents/`: The agents' code.
+    -   `app/agents/tools.py`: **File with tools used by the agents.**
+-   `tests/`: All tests are here.
+    -   `tests/test_tools.py`: **Tests for the tools from `app/agents/tools.py`**
 
-# ДОСТУПНАЯ КОМАНДА АГЕНТОВ:
+# AVAILABLE AGENT TEAM:
 1.  **CodingAgent**:
-    -   **Специализация**: Написание, чтение и модификация кода.
-    -   **Инструменты**: `list_files`, `read_file`, `edit_file`.
+    -   **Specialization**: Writing, reading, and modifying code.
+    -   **Tools**: `list_files`, `read_file`, `edit_file`.
 2.  **TestingAgent**:
-    -   **Специализация**: Тестирование кода.
-    -   **Инструменты**: `read_file`, `run_tests`.
+    -   **Specialization**: Testing code.
+    -   **Tools**: `read_file`, `run_tests`.
 3.  **ReviewerAgent**:
-    -   **Специализация**: Проверка качества кода, поиск багов и несоответствий.
-    -   **Инструменты**: `read_file`.
+    -   **Specialization**: Checking code quality, finding bugs and inconsistencies.
+    -   **Tools**: `read_file`.
 4.  **EvaluatorAgent**:
-    -   **Специализация**: Анализ ошибок и составление баг-репортов.
-    -   **Инструменты**: `read_file`.
-    -   **ВАЖНО**: Этот агент используется Оркестратором автоматически при провале тестов. Тебе не нужно назначать ему задачи в первоначальном плане.
+    -   **Specialization**: Analyzing errors and creating bug reports.
+    -   **Tools**: `read_file`.
+    -   **IMPORTANT**: This agent is used by the Orchestrator automatically when tests fail. You do not need to assign it tasks in the initial plan.
 5.  **DefaultAgent**:
-    -   **Специализация**: Общие задачи и анализ.
-    -   **Инструменты**: `list_files`, `read_file`.
+    -   **Specialization**: General tasks and analysis.
+    -   **Tools**: `list_files`, `read_file`.
 
-# ПРАВИЛА СОСТАВЛЕНИЯ ПЛАНА:
-1.  **Code Review для ВСЕГО кода**: Сразу после КАЖДОГО шага, в котором `CodingAgent` пишет или изменяет любой код (будь то основной код, тесты, документация и т.д.), ОБЯЗАТЕЛЬНО должен следовать шаг "Провести Code Review", назначенный на `ReviewerAgent`.
-2.  **Полные пути**: ВСЕГДА используй полные относительные пути от корня проекта для любых файлов. Например: `app/agents/tools.py`, `tests/test_tools.py`.
-3.  **Конкретика**: Формулируй задачи максимально конкретно. Вместо "написать функцию", пиши "добавить функцию X в файл Y".
-4.  **Логика прежде тестов**: План должен сначала содержать шаг для написания или изменения **полной логики** функции, и только потом — шаг для написания тестов.
-5.  **Сфокусированное тестирование**: Шаг для тестирования должен указывать конкретный файл с тестами. В `description` задачи ОБЯЗАТЕЛЬНО включи пример вызова инструмента, например: `Используя 'run_tests', вызови его так: run_tests_tool({'path': 'tests/test_tools.py'})`.
-6.  **Назначение**: Для каждого шага укажи `assignee` (`CodingAgent`, `TestingAgent`, `DefaultAgent`).
-7.  **Формат**: Вывод должен быть СТРОГО в формате JSON-массива объектов.
+# RULES FOR CREATING THE PLAN:
+1.  **Code Review for ALL code**: Immediately after EVERY step in which `CodingAgent` writes or modifies any code (be it main code, tests, documentation, etc.), a "Conduct Code Review" step assigned to `ReviewerAgent` MUST follow.
+2.  **Full Paths**: ALWAYS use full relative paths from the project root for any files. For example: `app/agents/tools.py`, `tests/test_tools.py`.
+3.  **Specificity**: Formulate tasks as specifically as possible. Instead of "write a function", write "add function X to file Y".
+4.  **Logic Before Tests**: The plan must first contain a step for writing or changing the **complete logic** of a function, and only then a step for writing tests.
+5.  **Focused Testing**: The testing step must specify a particular test file. In the task `description`, you MUST include an example of how to call the tool, for example: `Using 'run_tests', call it like this: run_tests_tool({'path': 'tests/test_tools.py'})`.
+6.  **Assignment**: For each step, specify the `assignee` (`CodingAgent`, `TestingAgent`, `DefaultAgent`).
+7.  **Format**: The output must be STRICTLY in the format of a JSON array of objects.
 
-# ПРИМЕР:
+# EXAMPLE:
 
-**Цель**: "Добавить в `tools.py` функцию `multiply(a, b)` и покрыть ее тестами."
+**Goal**: "Add a `multiply(a, b)` function to `tools.py` and cover it with tests."
 
-**Результат (JSON):**
+**Result (JSON):**
 ```json
 [
     {
         "step": 1,
         "assignee": "CodingAgent",
-        "task": "Добавить функцию 'multiply_tool' в файл 'app/agents/tools.py'.",
-        "description": "Нужно открыть файл 'app/agents/tools.py' и добавить в него новую Python-функцию 'multiply', которая принимает два числовых аргумента и возвращает их произведение. Использовать режим 'append'."
+        "task": "Add 'multiply_tool' function to 'app/agents/tools.py'.",
+        "description": "Open the file 'app/agents/tools.py' and add a new Python function 'multiply' that takes two numerical arguments and returns their product. Use 'append' mode."
     },
     {
         "step": 2,
         "assignee": "ReviewerAgent",
-        "task": "Провести Code Review для функции 'multiply_tool' в 'app/agents/tools.py'.",
-        "description": "Проверить код на соответствие стандартам качества."
+        "task": "Conduct Code Review for 'multiply_tool' function in 'app/agents/tools.py'.",
+        "description": "Check the code for compliance with quality standards."
     },
     {
         "step": 3,
         "assignee": "CodingAgent",
-        "task": "Создать файл 'tests/test_tools.py' с тестами для 'multiply_tool'.",
-        "description": "В файле 'tests/test_tools.py' написать тест 'test_multiply' с использованием pytest, который проверяет корректность работы функции 'multiply'."
+        "task": "Create 'tests/test_tools.py' file with tests for 'multiply_tool'.",
+        "description": "In 'tests/test_tools.py', write a 'test_multiply' test using pytest that checks the correctness of the 'multiply' function."
     },
     {
         "step": 4,
         "assignee": "ReviewerAgent",
-        "task": "Провести Code Review для файла 'tests/test_tools.py'.",
-        "description": "Проверить код тестов на полноту, корректность и стиль."
+        "task": "Conduct Code Review for 'tests/test_tools.py' file.",
+        "description": "Check the test code for completeness, correctness, and style."
     },
     {
         "step": 5,
         "assignee": "TestingAgent",
-        "task": "Запустить тесты для файла 'tests/test_tools.py'.",
-        "description": "Используя инструмент 'run_tests', вызови его с аргументом {'path': 'tests/test_tools.py'} для проверки выполненной работы."
+        "task": "Run tests for 'tests/test_tools.py' file.",
+        "description": "Using the 'run_tests' tool, call it with the argument {'path': 'tests/test_tools.py'} to verify the work done."
     }
 ]
 ```
 """
-        user_prompt = f"Моя цель: \"{goal}\". Пожалуйста, составь план."
+        user_prompt = f"My goal is: \"{goal}\". Please create a plan."
 
         try:
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-                # response_format убираем, чтобы дать модели больше гибкости
             )
             
             plan_str = response.choices[0].message.content
             
-            # Улучшенная очистка ответа модели
-            # Иногда модель оборачивает JSON в ```json ... ```
             if plan_str.strip().startswith("```json"):
                 plan_str = plan_str.strip()[7:-3].strip()
 
             plan = json.loads(plan_str)
             
-            # Валидация, что каждый шаг содержит ключ 'assignee'
             for step in plan:
                 if 'assignee' not in step:
-                    raise ValueError(f"Шаг {step.get('step')} в плане не содержит обязательное поле 'assignee'")
+                    raise ValueError(f"Step {step.get('step')} in the plan is missing the required 'assignee' field")
 
             return plan
 
         except Exception as e:
-            logging.error("Произошла ошибка при декомпозиции задачи: %s", e, exc_info=True)
+            logging.error("An error occurred during task decomposition: %s", e, exc_info=True)
             return [] 
