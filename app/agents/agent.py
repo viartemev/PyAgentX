@@ -9,11 +9,11 @@ from app.agents.tools import ToolDefinition
 
 # Четкий и инструктивный системный промпт
 SYSTEM_PROMPT = (
-    "Ты — полезный ИИ-ассистент. У тебя есть доступ к набору инструментов для ответов на вопросы пользователя. "
-    "Когда пользователь задает вопрос, сначала подумай, нужно ли использовать инструмент. "
-    "Если решишь использовать инструмент, вызови его. После получения результата от инструмента, "
-    "используй этот результат для формулирования окончательного ответа пользователю. "
-    "Не просто констатируй вывод инструмента, а дай полезный и развернутый ответ, который включает в себя полученные данные."
+    """You are a helpful AI assistant. You have access to a set of tools to answer the user’s questions.
+    When the user asks a question, first consider whether a tool is needed.
+    If you decide to use a tool, call it. Once you receive the result from the tool,
+    use that result to formulate a final response to the user.
+    Don’t just repeat the tool’s output — instead, provide a helpful and detailed answer that incorporates the retrieved data."""
 )
 
 # Настройка логирования
