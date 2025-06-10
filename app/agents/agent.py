@@ -1,33 +1,37 @@
 from typing import Callable, Tuple, Optional, List, Dict, Any
 import os
+import json
 from openai import OpenAI
 from dotenv import load_dotenv
+from app.agents.tools import ToolDefinition
 
 class Agent:
-    """Базовый класс AI-агента.
+    """AI-агент с поддержкой инструментов (OpenAI function calling).
 
     Args:
         name (str): Имя агента.
-        user_input (Optional[Callable[[], Tuple[str, bool]]]): Функция для получения пользовательского ввода.
-
-    Example:
-        >>> def mock_input():
-        ...     return ("Hello!", True)
-        >>> agent = Agent(name="TestAgent", user_input=mock_input)
-        >>> agent.run()
+        user_input (Optional[Callable[[], Tuple[str, bool]]]): Функция для пользовательского ввода.
+        tools (Optional[List[ToolDefinition]]): Список инструментов.
     """
-    def __init__(self, name: str, user_input: Optional[Callable[[], Tuple[str, bool]]] = None):
+    def __init__(self, name: str, user_input: Optional[Callable[[], Tuple[str, bool]]] = None, tools: Optional[List[ToolDefinition]] = None):
         load_dotenv()
         self.name = name
         self.user_input = user_input
         self.model = os.getenv("OPENAI_MODEL", "o4-mini")
         self.api_key = os.getenv("OPENAI_API_KEY")
+        self.tools = tools or []
 
     def process(self, input: str) -> str:
         """Основная логика обработки входных данных агентом."""
         return f"Agent {self.name} processed: {input}"
 
-    def run_inference(self, conversation: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def execute_tool(self, name: str, input_data: Dict[str, Any]) -> str:
+        for tool in self.tools:
+            if tool.name == name:
+                return tool.function(input_data)
+        return f"Tool '{name}' not found"
+
+    def run_inference(self, conversation: List[Dict[str, Any]]) -> Any:
         """Выполняет запрос к OpenAI Chat API, используя историю сообщений.
 
         Args:
@@ -41,21 +45,47 @@ class Agent:
                 messages.append({"role": "user", "content": msg["content"]})
             elif msg["role"] == "agent":
                 messages.append({"role": "assistant", "content": msg["content"]})
+            elif msg["role"] == "function":
+                messages.append({"role": "function", "name": msg["name"], "content": msg["content"]})
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.input_schema,
+                },
+            }
+            for tool in self.tools
+        ] if self.tools else None
         try:
             client = OpenAI(api_key=self.api_key)
             response = client.chat.completions.create(
                 model=self.model,
                 messages=messages,
-                max_completion_tokens=1024
+                tools=tools,
+                tool_choice="auto" if tools else None,
+                max_completion_tokens=1024,
+                temperature=0.7,
             )
-            content = response.choices[0].message.content
-            return {"role": "agent", "content": content}
+            message = response.choices[0].message
+            # Если модель вызывает функцию
+            if hasattr(message, "tool_calls") and message.tool_calls:
+                results = []
+                for tool_call in message.tool_calls:
+                    tool_name = tool_call.function.name
+                    tool_args = json.loads(tool_call.function.arguments)
+                    tool_result = self.execute_tool(tool_name, tool_args)
+                    results.append({"role": "function", "name": tool_name, "content": tool_result})
+                return results[0] if results else {"role": "agent", "content": "(no tool result)"}
+            else:
+                return {"role": "agent", "content": message.content}
         except Exception as e:
             return {"role": "agent", "content": f"[OpenAI error: {e}]"}
 
     def run(self) -> None:
         """Интерактивный чат-цикл с историей сообщений, аналог Go-примера."""
-        conversation: List[Dict[str, str]] = []
+        conversation: List[Dict[str, Any]] = []
         print("Chat with Agent (use Ctrl-C to quit)")
         try:
             while True:
@@ -75,6 +105,8 @@ class Agent:
                 conversation.append(agent_message)
                 if agent_message.get("role") == "agent":
                     print(f"\u001b[93m{self.name}\u001b[0m: {agent_message.get('content')}")
+                elif agent_message.get("role") == "function":
+                    print(f"\u001b[92mtool\u001b[0m: {agent_message.get('name')} => {agent_message.get('content')}")
                 else:
                     print(f"\u001b[93m{self.name}\u001b[0m: (no response)")
         except KeyboardInterrupt:
