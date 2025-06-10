@@ -37,18 +37,18 @@ def main():
         logging.info("Инициализация команды агентов...")
         
         # Агент-кодер
-        coding_agent = Agent(name="CodingAgent", api_key=api_key, model="gpt-4-turbo")
+        coding_agent = Agent(name="CodingAgent", api_key=api_key, model="o4-mini")
         coding_agent.add_tool(list_files_tool)
         coding_agent.add_tool(read_file_tool)
         coding_agent.add_tool(edit_file_tool)
 
         # Агент-тестировщик
-        testing_agent = Agent(name="TestingAgent", api_key=api_key, model="gpt-4-turbo")
+        testing_agent = Agent(name="TestingAgent", api_key=api_key, model="o4-mini")
         testing_agent.add_tool(read_file_tool) # Чтобы читать код тестов
         testing_agent.add_tool(run_tests_tool) # Чтобы запускать тесты
 
         # Агент-оценщик (пока с базовым набором инструментов)
-        evaluator_agent = Agent(name="EvaluatorAgent", api_key=api_key, model="gpt-4-turbo")
+        evaluator_agent = Agent(name="EvaluatorAgent", api_key=api_key, model="o4-mini")
         evaluator_agent.add_tool(read_file_tool)
 
         # Создаем словарь рабочих агентов для Оркестратора
@@ -58,12 +58,12 @@ def main():
             "EvaluatorAgent": evaluator_agent,
         }
         # Добавляем универсального агента, если задача не назначена конкретному
-        workers["DefaultAgent"] = Agent(name="DefaultAgent", api_key=api_key, model="gpt-4-turbo")
+        workers["DefaultAgent"] = Agent(name="DefaultAgent", api_key=api_key, model="o4-mini")
         workers["DefaultAgent"].add_tool(list_files_tool)
         workers["DefaultAgent"].add_tool(read_file_tool)
 
         # Планировщик
-        planner = TaskDecomposer(api_key=api_key, model="gpt-4-turbo")
+        planner = TaskDecomposer(api_key=api_key, model="o4-mini")
         
         # Оркестратор теперь управляет командой
         orchestrator = Orchestrator(
