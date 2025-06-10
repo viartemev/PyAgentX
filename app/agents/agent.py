@@ -97,6 +97,24 @@ class Agent:
         except EOFError:
             return None
 
+    def _get_model_response(self) -> ChatCompletionMessage:
+        """
+        Отправляет текущую историю беседы в OpenAI и возвращает ответ модели.
+        """
+        try:
+            logging.info(f"Отправка запроса в OpenAI с {len(self.conversation_history)} сообщениями.")
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=self.conversation_history,
+                tools=self.get_openai_tools(),
+                tool_choice="auto",
+            )
+            return response.choices[0].message
+        except Exception as e:
+            logging.error(f"Ошибка при вызове OpenAI API: {e}", exc_info=True)
+            # Возвращаем "пустое" сообщение с контентом об ошибке, чтобы цикл мог его обработать
+            return ChatCompletionMessage(role="assistant", content=f"Произошла ошибка API: {e}")
+
     def execute_task(self, briefing: str) -> str:
         """
         Выполняет одну задачу на основе предоставленного брифинга.
@@ -116,6 +134,9 @@ class Agent:
 
         for _ in range(self.max_iterations):
             response_message = self._get_model_response()
+
+            if response_message.content and "ошибка API" in response_message.content.lower():
+                return response_message.content
 
             if not response_message.tool_calls:
                 final_answer = response_message.content or "Задача выполнена."
