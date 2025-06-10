@@ -189,3 +189,95 @@ def analyze_text_tool(input_data: Dict[str, Any]) -> str:
         return "Ошибка: в input_data отсутствует обязательный ключ 'text'."
     except Exception as e:
         return f"Ошибка при анализе текста: {e}"
+
+read_file_tool_def = {
+    "type": "function",
+    "function": {
+        "name": "read_file_tool",
+        "description": "Читает содержимое файла по указанному пути.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Полный путь к файлу для чтения."}
+            },
+            "required": ["path"],
+        },
+    },
+}
+
+list_files_tool_def = {
+    "type": "function",
+    "function": {
+        "name": "list_files_tool",
+        "description": "Рекурсивно выводит дерево файлов и директорий по указанному пути.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Путь к директории для просмотра. По умолчанию '.'"}
+            },
+            "required": [],
+        },
+    },
+}
+
+edit_file_tool_def = {
+    "type": "function",
+    "function": {
+        "name": "edit_file_tool",
+        "description": "Создает, перезаписывает или добавляет контент в файл. Режимы: 'overwrite', 'append'.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Полный путь к файлу для записи."},
+                "content": {"type": "string", "description": "Полное новое содержимое файла."},
+                "mode": {"type": "string", "enum": ["overwrite", "append"], "description": "Режим записи."},
+            },
+            "required": ["path", "content"],
+        },
+    },
+}
+
+delete_file_tool_def = {
+    "type": "function",
+    "function": {
+        "name": "delete_file_tool",
+        "description": "Удаляет файл по указанному пути.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Полный путь к файлу для удаления."}
+            },
+            "required": ["path"],
+        },
+    },
+}
+
+run_tests_tool_def = {
+    "type": "function",
+    "function": {
+        "name": "run_tests_tool",
+        "description": "Запускает тесты с помощью pytest для указанного файла или директории.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Путь к тестовому файлу или директории. По умолчанию - весь проект."}
+            },
+            "required": [],
+        },
+    },
+}
+
+analyze_text_tool_def = {
+    "type": "function",
+    "function": {
+        "name": "analyze_text_tool",
+        "description": "Анализирует текст и возвращает количество слов и символов.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string", "description": "Текст для анализа."}
+            },
+            "required": ["text"],
+        },
+    },
+}

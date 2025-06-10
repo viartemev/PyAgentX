@@ -52,86 +52,41 @@ class Agent:
         name: str,
         api_key: str,
         model: str = "o4-mini",
+        max_iterations: int = 10,
     ):
         self.name = name
         self.model = model
         self.client = OpenAI(api_key=api_key)
         self.tools: Dict[str, Callable] = {}
+        self.tool_definitions: List[Dict[str, Any]] = []
+        self.conversation_history: List[Dict[str, Any]] = []
+        self.max_iterations = max_iterations
 
-    def add_tool(self, tool_func: Callable):
-        """Добавляет инструмент (функцию) к агенту."""
-        if not hasattr(tool_func, '__name__') or not tool_func.__name__:
-            raise ValueError("Инструмент должен иметь имя (__name__).")
-        
-        self.tools[tool_func.__name__] = tool_func
+    def add_tool(self, tool_func: Callable, tool_definition: Dict[str, Any]):
+        """Добавляет инструмент и его определение."""
+        tool_name = tool_func.__name__
+        self.tools[tool_name] = tool_func
+        self.tool_definitions.append(tool_definition)
     
     def get_openai_tools(self) -> Optional[List[Dict[str, Any]]]:
-        """Возвращает список инструментов в формате OpenAI."""
-        if not self.tools:
+        """Возвращает список определений инструментов для OpenAI API."""
+        if not self.tool_definitions:
             return None
-        
-        openai_tools = []
-        for name, func in self.tools.items():
-            # Используем docstring как основное описание
-            description = inspect.getdoc(func)
-
-            # ВРЕМЕННОЕ РЕШЕНИЕ для определения параметров.
-            # В будущем это можно улучшить, используя более строгий парсинг docstring'ов
-            # или Pydantic модели.
-            params = {}
-            if name == "read_file_tool":
-                params = {"path": {"type": "string", "description": "Полный путь к файлу, который нужно прочитать."}}
-            elif name == "list_files_tool":
-                params = {"path": {"type": "string", "description": "Путь к директории для просмотра. По умолчанию '.' (текущая директория)."}}
-            elif name == "edit_file_tool":
-                params = {
-                    "path": {"type": "string", "description": "Полный путь к файлу для записи."},
-                    "content": {"type": "string", "description": "Полное новое содержимое файла."}
-                }
-            elif name == "delete_file_tool":
-                params = {"path": {"type": "string", "description": "Полный путь к файлу для удаления."}}
-            
-            # Определяем обязательные параметры
-            required_params = []
-            if name in ["read_file_tool", "edit_file_tool", "delete_file_tool"]:
-                required_params = list(params.keys())
-            if name == "edit_file_tool" and "content" not in required_params:
-                 required_params.append("content")
-
-            clean_name = name.replace('_tool', '')
-
-            openai_tools.append({
-                "type": "function",
-                "function": {
-                    "name": clean_name,
-                    "description": description,
-                    "parameters": {
-                        "type": "object",
-                        "properties": params,
-                        "required": required_params,
-                    },
-                },
-            })
-        return openai_tools
+        return self.tool_definitions
     
-    def _execute_tool(self, tool_name: str, tool_args: Dict[str, Any]) -> str:
-        """Выполняет инструмент и возвращает его результат в виде строки."""
-        full_tool_name = f"{tool_name}_tool"
-        logging.info("Выполнение инструмента '%s' с аргументами: %s", full_tool_name, tool_args)
-        tool_func = self.tools.get(full_tool_name)
-
-        if not tool_func:
-            logging.warning("Попытка вызова неизвестного инструмента: '%s'", full_tool_name)
+    def _execute_tool(self, tool_name: str, tool_args: Dict[str, Any]) -> Any:
+        """Выполняет указанный инструмент с аргументами."""
+        if tool_name in self.tools:
+            try:
+                # Наши функции-инструменты ожидают один словарь в качестве аргумента
+                result = self.tools[tool_name](tool_args)
+                return result
+            except Exception as e:
+                logging.error("Ошибка при выполнении инструмента '%s': %s", tool_name, e, exc_info=True)
+                return f"Ошибка: Не удалось выполнить инструмент '{tool_name}'. Причина: {e}"
+        else:
+            logging.warning("Попытка вызова неизвестного инструмента: '%s'", tool_name)
             return f"Ошибка: Инструмент '{tool_name}' не найден."
-        
-        try:
-            # Наши функции-инструменты ожидают один словарь в качестве аргумента
-            result = tool_func(tool_args)
-            logging.info("Инструмент '%s' успешно выполнен.", full_tool_name)
-            return str(result)
-        except Exception as e:
-            logging.error("Ошибка при выполнении инструмента '%s': %s", full_tool_name, e, exc_info=True)
-            return f"Ошибка: Не удалось выполнить инструмент '{tool_name}'. Причина: {e}"
 
     def _get_user_input(self) -> Optional[str]:
         """Обрабатывает получение ввода от пользователя."""
@@ -142,66 +97,56 @@ class Agent:
         except EOFError:
             return None
 
-    def execute_task(self, briefing: str, task: str) -> str:
+    def execute_task(self, briefing: str) -> str:
         """
-        Выполняет конкретную задачу в неинтерактивном режиме.
+        Выполняет одну задачу на основе предоставленного брифинга.
+        Теперь метод неинтерактивный и предназначен для вызова Оркестратором.
 
         Args:
-            briefing (str): Системный промпт, содержащий общий контекст и цель.
-            task (str): Конкретная задача для выполнения.
+            briefing: Полный контекст и описание задачи.
 
         Returns:
-            Строка с финальным результатом выполнения задачи.
+            Результат выполнения задачи в виде строки.
         """
-        logging.info("Агент '%s' получил новую задачу: %s", self.name, task)
+        logging.info(f"Агент {self.name} получил задачу.")
         
-        # Используем брифинг как системное сообщение, а задачу - как сообщение от пользователя
-        self.messages = [
-            {"role": "system", "content": briefing},
-            {"role": "user", "content": f"Вот твоя задача: {task}. Выполни ее."}
-        ]
+        self.conversation_history = []
+        self.conversation_history.append({"role": "system", "content": briefing})
+        self.conversation_history.append({"role": "user", "content": "Проанализируй предоставленный контекст и выполни свою задачу, используя инструменты."})
 
-        max_tool_calls = 5
-        for i in range(max_tool_calls):
-            logging.info("Шаг #%d. Вызов OpenAI с историей из %d сообщений.", i + 1, len(self.messages))
-            
-            try:
-                response: ChatCompletionMessage = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=self.messages,
-                    tools=self.get_openai_tools(),
-                    tool_choice="auto" if self.tools else None,
-                ).choices[0].message
-            except APIError as e:
-                error_message = f"Ошибка OpenAI API при выполнении задачи: {e}"
-                logging.error(error_message)
-                return error_message
+        for _ in range(self.max_iterations):
+            response_message = self._get_model_response()
 
-            if not response.tool_calls:
-                final_answer = response.content or "Задача выполнена, но ответа от LLM не последовало."
-                logging.info("--- Завершение подзадачи. Результат: %s ---", final_answer)
+            if not response_message.tool_calls:
+                final_answer = response_message.content or "Задача выполнена."
+                logging.info(f"Агент {self.name} завершил задачу с ответом: {final_answer}")
                 return final_answer
             
-            self.messages.append(response.model_dump())
-
-            for tool_call in response.tool_calls:
+            self.conversation_history.append(response_message)
+            
+            for tool_call in response_message.tool_calls:
                 tool_name = tool_call.function.name
                 tool_args_str = tool_call.function.arguments
+                logging.info(f"Вызов инструмента: {tool_name} с аргументами: {tool_args_str}")
+                
                 try:
                     tool_args = json.loads(tool_args_str)
                     tool_result = self._execute_tool(tool_name, tool_args)
                 except json.JSONDecodeError:
-                    logging.error("Не удалось декодировать аргументы для '%s': %s", tool_name, tool_args_str)
-                    tool_result = f"Ошибка: Неверные аргументы для инструмента '{tool_name}'."
+                    error_msg = f"Ошибка: неверный JSON в аргументах инструмента: {tool_args_str}"
+                    logging.error(error_msg)
+                    tool_result = error_msg
                 
-                self.messages.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "name": tool_name,
-                    "content": tool_result,
-                })
+                self.conversation_history.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "name": tool_name,
+                        "content": str(tool_result),
+                    }
+                )
         
-        warning_message = "Достигнут лимит вызовов инструментов. Не удалось завершить задачу."
+        warning_message = f"Агент {self.name} достиг лимита итераций ({self.max_iterations}), не завершив задачу."
         logging.warning(warning_message)
         return warning_message
 

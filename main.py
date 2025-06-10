@@ -3,11 +3,10 @@ import os
 from dotenv import load_dotenv
 from app.agents.agent import Agent
 from app.agents.tools import (
-    list_files_tool,
-    read_file_tool,
-    edit_file_tool,
-    delete_file_tool,
-    run_tests_tool
+    read_file_tool, read_file_tool_def,
+    edit_file_tool, edit_file_tool_def,
+    list_files_tool, list_files_tool_def,
+    run_tests_tool, run_tests_tool_def
 )
 from app.orchestration.decomposer import TaskDecomposer
 from app.orchestration.orchestrator import Orchestrator
@@ -36,24 +35,24 @@ def main():
         # 1. Инициализация команды агентов
         logging.info("Инициализация команды агентов...")
         
-        # Агент-кодер
-        coding_agent = Agent(name="CodingAgent", api_key=api_key, model="o4-mini")
-        coding_agent.add_tool(list_files_tool)
-        coding_agent.add_tool(read_file_tool)
-        coding_agent.add_tool(edit_file_tool)
+        # Агент для написания и изменения кода
+        coding_agent = Agent(name="CodingAgent", api_key=api_key)
+        coding_agent.add_tool(read_file_tool, read_file_tool_def)
+        coding_agent.add_tool(edit_file_tool, edit_file_tool_def)
+        coding_agent.add_tool(list_files_tool, list_files_tool_def)
 
-        # Агент-тестировщик
-        testing_agent = Agent(name="TestingAgent", api_key=api_key, model="o4-mini")
-        testing_agent.add_tool(read_file_tool) # Чтобы читать код тестов
-        testing_agent.add_tool(run_tests_tool) # Чтобы запускать тесты
+        # Агент для запуска тестов
+        testing_agent = Agent(name="TestingAgent", api_key=api_key)
+        testing_agent.add_tool(read_file_tool, read_file_tool_def)
+        testing_agent.add_tool(run_tests_tool, run_tests_tool_def)
 
-        # Агент-оценщик (пока с базовым набором инструментов)
-        evaluator_agent = Agent(name="EvaluatorAgent", api_key=api_key, model="o4-mini")
-        evaluator_agent.add_tool(read_file_tool)
+        # Агент для оценки результатов и создания баг-репортов
+        evaluator_agent = Agent(name="EvaluatorAgent", api_key=api_key)
+        evaluator_agent.add_tool(read_file_tool, read_file_tool_def)
 
         # Агент-ревьюер, который проверяет качество кода
-        reviewer_agent = Agent(name="ReviewerAgent", api_key=api_key, model="gpt-4-turbo")
-        reviewer_agent.add_tool(read_file_tool)
+        reviewer_agent = Agent(name="ReviewerAgent", api_key=api_key)
+        reviewer_agent.add_tool(read_file_tool, read_file_tool_def)
 
         # Создаем словарь рабочих агентов для Оркестратора
         workers = {
@@ -62,10 +61,12 @@ def main():
             "EvaluatorAgent": evaluator_agent,
             "ReviewerAgent": reviewer_agent,
         }
-        # Добавляем универсального агента, если задача не назначена конкретному
-        workers["DefaultAgent"] = Agent(name="DefaultAgent", api_key=api_key, model="o4-mini")
-        workers["DefaultAgent"].add_tool(list_files_tool)
-        workers["DefaultAgent"].add_tool(read_file_tool)
+        
+        # Добавляем универсального агента
+        default_agent = Agent(name="DefaultAgent", api_key=api_key)
+        default_agent.add_tool(list_files_tool, list_files_tool_def)
+        default_agent.add_tool(read_file_tool, read_file_tool_def)
+        workers["DefaultAgent"] = default_agent
 
         # Планировщик
         planner = TaskDecomposer(api_key=api_key, model="o4-mini")
