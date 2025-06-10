@@ -1,4 +1,4 @@
 """
-Этот файл предназначен для тестов инструментов (tools).
-Агенты будут наполнять его содержимым.
+Tests for the subtract function in app.agents.tools.
+This module covers various scenarios including valid operations, boundary cases, and invalid inputs.
 """

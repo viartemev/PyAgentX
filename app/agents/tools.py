@@ -215,10 +215,13 @@ def subtract(a: Real, b: Real) -> Real:
         Real: Результат вычитания a - b.
 
     Raises:
-        TypeError: Если аргументы не являются числовыми значениями.
+        TypeError: Если аргументы не являются числовыми значениями или являются булевыми.
     """
+    # Явный запрет для булевых значений, так как bool является подклассом int
+    if isinstance(a, bool) or isinstance(b, bool):
+        raise TypeError("subtract() не может принимать bool, ожидаются числа Real")
     if not isinstance(a, Real) or not isinstance(b, Real):
-        raise TypeError(f"subtract() ожидает числа, получили: {type(a)}, {type(b)}")
+        raise TypeError(f"subtract() ожидает числа Real, получили: {type(a)}, {type(b)}")
     return a - b
 
 
@@ -237,8 +240,14 @@ def subtract_tool(input_data: Dict[str, Any]) -> str:
         b = input_data["b"]
         result = subtract(a, b)
         return f"Результат вычитания: {result}"
-    except (KeyError, TypeError) as e:
-        return f"Ошибка при вызове subtract_tool: {e}"
+    except KeyError as e:
+        missing = e.args[0]
+        return f"Ошибка: отсутствует параметр '{missing}' в subtract_tool"
+    except TypeError as e:
+        return f"Ошибка типа: {e}"
+    except Exception as e:
+        logging.error("Неожиданная ошибка в subtract_tool", exc_info=True)
+        return f"Внутренняя ошибка инструмента subtract_tool: {e}"
 
 
 # Определения инструментов (Tool Definitions)
