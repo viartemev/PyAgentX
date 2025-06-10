@@ -1,9 +1,19 @@
 from app.agents.agent import Agent
-from app.agents.tools import read_file_definition
+from app.agents.tools import (
+    read_file_definition,
+    list_files_definition,
+    edit_file_definition,
+    delete_file_definition
+)
 
 def main() -> None:
     """Точка входа для запуска агента из командной строки."""
-    tools = [read_file_definition]
+    tools = [
+        read_file_definition,
+        list_files_definition,
+        edit_file_definition,
+        delete_file_definition
+    ]
     agent = Agent(name="ConsoleAgent", tools=tools, user_input_handler=None)
     agent.run()
 
