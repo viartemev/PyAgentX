@@ -1,19 +1,22 @@
+"""
+Этот модуль определяет основного AI-агента, его логику и цикл взаимодействия с пользователем.
+"""
 from typing import Callable, Tuple, Optional, List, Dict, Any
 import os
 import json
 import logging
-from openai import OpenAI
+from openai import OpenAI, APIError
 from openai.types.chat import ChatCompletionMessage
 from dotenv import load_dotenv
 from app.agents.tools import ToolDefinition
 
 # Четкий и инструктивный системный промпт
 SYSTEM_PROMPT = (
-    """You are a helpful AI assistant. You have access to a set of tools to answer the user’s questions.
-    When the user asks a question, first consider whether a tool is needed.
-    If you decide to use a tool, call it. Once you receive the result from the tool,
-    use that result to formulate a final response to the user.
-    Don’t just repeat the tool’s output — instead, provide a helpful and detailed answer that incorporates the retrieved data."""
+    "Ты — полезный ИИ-ассистент. У тебя есть доступ к набору инструментов для ответов на вопросы пользователя. "
+    "Когда пользователь задает вопрос, сначала подумай, нужно ли использовать инструмент. "
+    "Если решишь использовать инструмент, вызови его. После получения результата от инструмента, "
+    "используй этот результат для формулирования окончательного ответа пользователю. "
+    "Не просто констатируй вывод инструмента, а дай полезный и развернутый ответ, который включает в себя полученные данные."
 )
 
 # Настройка логирования
@@ -42,19 +45,18 @@ class Agent:
 
     def _execute_tool(self, tool_name: str, tool_args: Dict[str, Any]) -> str:
         """Выполняет инструмент и возвращает его результат в виде строки."""
-        logging.info(f"Выполнение инструмента '{tool_name}' с аргументами: {tool_args}")
-        if tool_name in self.tools:
-            tool = self.tools[tool_name]
-            try:
-                result = tool.function(tool_args)
-                logging.info(f"Инструмент '{tool_name}' успешно выполнен.")
-                return str(result)
-            except Exception as e:
-                logging.error(f"Ошибка при выполнении инструмента '{tool_name}': {e}", exc_info=True)
-                return f"Ошибка: Не удалось выполнить инструмент '{tool_name}'. Причина: {e}"
-        else:
-            logging.warning(f"Попытка вызова неизвестного инструмента: '{tool_name}'")
+        logging.info("Выполнение инструмента '%s' с аргументами: %s", tool_name, tool_args)
+        tool = self.tools.get(tool_name)
+        if not tool:
+            logging.warning("Попытка вызова неизвестного инструмента: '%s'", tool_name)
             return f"Ошибка: Инструмент '{tool_name}' не найден."
+        try:
+            result = tool.function(tool_args)
+            logging.info("Инструмент '%s' успешно выполнен.", tool_name)
+            return str(result)
+        except Exception as e:
+            logging.error("Непредвиденная ошибка при выполнении инструмента '%s': %s", tool_name, e, exc_info=True)
+            return f"Ошибка: Не удалось выполнить инструмент '{tool_name}'. Причина: {e}"
 
     def _get_user_input(self) -> Optional[str]:
         """Обрабатывает получение ввода от пользователя."""
@@ -62,12 +64,12 @@ class Agent:
         if self.user_input_handler:
             user_input, ok = self.user_input_handler()
             return user_input if ok else None
-        else:
-            try:
-                user_input = input()
-                return user_input if user_input.strip() else None
-            except EOFError:
-                return None
+        
+        try:
+            user_input = input()
+            return user_input if user_input.strip() else None
+        except EOFError:
+            return None
 
     def run(self) -> None:
         """Запускает основной цикл общения с агентом."""
@@ -84,17 +86,21 @@ class Agent:
 
                 max_tool_calls = 5
                 for _ in range(max_tool_calls):
-                    logging.info(f"Вызов OpenAI с историей из {len(conversation)} сообщений:\n{json.dumps(conversation, indent=2, ensure_ascii=False)}")
+                    logging.info("Вызов OpenAI с историей из %d сообщений:\n%s", 
+                                 len(conversation), 
+                                 json.dumps(conversation, indent=2, ensure_ascii=False))
                     
-                    response: ChatCompletionMessage = self.client.chat.completions.create(
-                        model=self.model,
-                        messages=conversation,
-                        tools=[
-                            {"type": "function", "function": tool.to_openai_spec()}
-                            for tool in self.tools.values()
-                        ] if self.tools else None,
-                        tool_choice="auto" if self.tools else None,
-                    ).choices[0].message
+                    try:
+                        response: ChatCompletionMessage = self.client.chat.completions.create(
+                            model=self.model,
+                            messages=conversation,
+                            tools=[tool.to_openai_spec() for tool in self.tools.values()] if self.tools else None,
+                            tool_choice="auto" if self.tools else None,
+                        ).choices[0].message
+                    except APIError as e:
+                        logging.error("Ошибка OpenAI API: %s", e)
+                        print(f"\033[91m{self.name}: Произошла ошибка при обращении к OpenAI. Попробуйте еще раз.\033[0m")
+                        break
                     
                     if not response.tool_calls:
                         assistant_response = response.content or ""
@@ -111,7 +117,7 @@ class Agent:
                             tool_args = json.loads(tool_args_str)
                             tool_result = self._execute_tool(tool_name, tool_args)
                         except json.JSONDecodeError:
-                            logging.error(f"Не удалось декодировать аргументы для '{tool_name}': {tool_args_str}")
+                            logging.error("Не удалось декодировать аргументы для '%s': %s", tool_name, tool_args_str)
                             tool_result = f"Ошибка: Неверные аргументы для инструмента '{tool_name}'."
                         
                         conversation.append({

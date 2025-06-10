@@ -1,0 +1,22 @@
+[MAIN]
+# Указываем pylint, где искать модули, чтобы исправить ошибки импорта.
+init-hook='import sys; sys.path.append(".venv/lib/python3.12/site-packages")'
+
+[MESSAGES CONTROL]
+# Отключаем менее критичные или спорные проверки
+disable=
+    missing-module-docstring,
+    missing-class-docstring,
+    missing-function-docstring,
+    too-few-public-methods,
+    redefined-outer-name,
+    protected-access,
+    line-too-long,
+    trailing-whitespace,
+    trailing-newlines,
+    missing-final-newline,
+    wrong-import-order
+
+[FORMAT]
+# Устанавливаем максимальную длину строки
+max-line-length=120 

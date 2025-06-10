@@ -1,5 +1,10 @@
+"""
+Этот модуль определяет инструменты (tools), которые может использовать AI-агент.
+Каждый инструмент представлен классом ToolDefinition и соответствующей функцией.
+"""
 from typing import Callable, Any, Dict
 import os
+import logging
 
 class ToolDefinition:
     """Определяет структуру инструмента, его описание и функцию."""
@@ -18,9 +23,12 @@ class ToolDefinition:
     def to_openai_spec(self) -> Dict[str, Any]:
         """Преобразует определение инструмента в формат, ожидаемый OpenAI API."""
         return {
-            "name": self.name,
-            "description": self.description,
-            "parameters": self.input_schema,
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": self.input_schema,
+            }
         }
 
 def read_file_tool(input_data: Dict[str, Any]) -> str:
@@ -41,7 +49,8 @@ def read_file_tool(input_data: Dict[str, Any]) -> str:
             return f.read()
     except FileNotFoundError:
         return f"Ошибка: Файл не найден по пути '{path}'."
-    except Exception as e:
+    except IOError as e:
+        logging.error("Ошибка ввода-вывода при чтении файла %s: %s", path, e)
         return f"Ошибка: Не удалось прочитать файл '{path}': {e}"
 
 read_file_definition = ToolDefinition(
@@ -85,7 +94,8 @@ def list_files_tool(input_data: Dict[str, Any]) -> str:
             for f in files:
                 output += f'{sub_indent}{f}\n'
         return output.strip()
-    except Exception as e:
+    except OSError as e:
+        logging.error("Ошибка ОС при листинге файлов в %s: %s", path, e)
         return f"Ошибка: Не удалось получить список файлов для '{path}': {e}"
 
 list_files_definition = ToolDefinition(
@@ -128,7 +138,8 @@ def edit_file_tool(input_data: Dict[str, Any]) -> str:
         with open(path, "w", encoding="utf-8") as f:
             f.write(content)
         return f"Файл '{path}' успешно сохранен."
-    except Exception as e:
+    except IOError as e:
+        logging.error("Ошибка ввода-вывода при записи в файл %s: %s", path, e)
         return f"Ошибка: Не удалось записать в файл '{path}': {e}"
 
 edit_file_definition = ToolDefinition(
@@ -171,7 +182,8 @@ def delete_file_tool(input_data: Dict[str, Any]) -> str:
         
         os.remove(path)
         return f"Файл '{path}' успешно удален."
-    except Exception as e:
+    except OSError as e:
+        logging.error("Ошибка ОС при удалении файла %s: %s", path, e)
         return f"Ошибка: Не удалось удалить файл '{path}': {e}"
 
 delete_file_definition = ToolDefinition(
