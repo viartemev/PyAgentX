@@ -2,11 +2,13 @@
 Этот модуль определяет инструменты (tools), которые может использовать AI-агент.
 Каждый инструмент представлен классом ToolDefinition и соответствующей функцией.
 """
-from typing import Callable, Any, Dict
+from typing import Callable, Any, Dict, Union
+from numbers import Real
 import os
 import logging
 import subprocess
 import sys
+
 
 def read_file_tool(input_data: Dict[str, Any]) -> str:
     """
@@ -24,6 +26,7 @@ def read_file_tool(input_data: Dict[str, Any]) -> str:
             return f.read()
     except Exception as e:
         return f"Ошибка: Не удалось прочитать файл '{input_data.get('path')}': {e}"
+
 
 def list_files_tool(input_data: Dict[str, Any]) -> str:
     """
@@ -60,6 +63,7 @@ def list_files_tool(input_data: Dict[str, Any]) -> str:
             output += f"{sub_indent}{f}\n"
             
     return output.strip()
+
 
 def edit_file_tool(input_data: Dict[str, Any]) -> str:
     """
@@ -98,6 +102,7 @@ def edit_file_tool(input_data: Dict[str, Any]) -> str:
     except Exception as e:
         return f"Ошибка: Не удалось записать в файл '{path}': {e}"
 
+
 def delete_file_tool(input_data: Dict[str, Any]) -> str:
     """
     Удаляет файл по указанному пути.
@@ -114,6 +119,7 @@ def delete_file_tool(input_data: Dict[str, Any]) -> str:
         return f"Файл '{path}' успешно удален."
     except Exception as e:
         return f"Ошибка: Не удалось удалить файл '{input_data.get('path')}': {e}"
+
 
 def run_tests_tool(input_data: Dict[str, Any]) -> str:
     """
@@ -168,6 +174,7 @@ def run_tests_tool(input_data: Dict[str, Any]) -> str:
         logging.error("Непредвиденная ошибка при запуске pytest: %s", e, exc_info=True)
         return f"Критическая ошибка: Не удалось запустить тесты. Причина: {e}" 
 
+
 def analyze_text_tool(input_data: Dict[str, Any]) -> str:
     """
     Анализирует текст и возвращает количество слов и символов.
@@ -189,6 +196,7 @@ def analyze_text_tool(input_data: Dict[str, Any]) -> str:
         return "Ошибка: в input_data отсутствует обязательный ключ 'text'."
     except Exception as e:
         return f"Ошибка при анализе текста: {e}"
+
 
 read_file_tool_def = {
     "type": "function",

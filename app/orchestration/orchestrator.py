@@ -68,7 +68,7 @@ class Orchestrator:
             task = plan[current_step_index]
             logging.info(f"--- Выполнение шага {task['step']}: {task['task']} ---")
             
-            if "review" in task["task"].lower():
+            if task.get("assignee") == "ReviewerAgent":
                 review_passed, suggestions = self._perform_code_review(task, plan, goal)
                 
                 if review_passed:

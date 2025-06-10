@@ -10,6 +10,12 @@ from app.agents.tools import (
 )
 from app.orchestration.decomposer import TaskDecomposer
 from app.orchestration.orchestrator import Orchestrator
+from app.agents.specialized_agents import (
+    CodingAgent,
+    ReviewerAgent,
+    TestingAgent,
+    EvaluatorAgent,
+)
 
 def main():
     """Главная функция для запуска AI агента."""
@@ -35,26 +41,23 @@ def main():
         # 1. Инициализация команды агентов
         logging.info("Инициализация команды агентов...")
         
-        # Агент для написания и изменения кода
-        coding_agent = Agent(name="CodingAgent", api_key=api_key)
+        common_kwargs = {"api_key": api_key, "model": "o4-mini"}
+
+        coding_agent = CodingAgent(name="CodingAgent", **common_kwargs)
         coding_agent.add_tool(read_file_tool, read_file_tool_def)
         coding_agent.add_tool(edit_file_tool, edit_file_tool_def)
         coding_agent.add_tool(list_files_tool, list_files_tool_def)
 
-        # Агент для запуска тестов
-        testing_agent = Agent(name="TestingAgent", api_key=api_key)
+        testing_agent = TestingAgent(name="TestingAgent", **common_kwargs)
         testing_agent.add_tool(read_file_tool, read_file_tool_def)
         testing_agent.add_tool(run_tests_tool, run_tests_tool_def)
 
-        # Агент для оценки результатов и создания баг-репортов
-        evaluator_agent = Agent(name="EvaluatorAgent", api_key=api_key)
+        evaluator_agent = EvaluatorAgent(name="EvaluatorAgent", **common_kwargs)
         evaluator_agent.add_tool(read_file_tool, read_file_tool_def)
 
-        # Агент-ревьюер, который проверяет качество кода
-        reviewer_agent = Agent(name="ReviewerAgent", api_key=api_key)
+        reviewer_agent = ReviewerAgent(name="ReviewerAgent", **common_kwargs)
         reviewer_agent.add_tool(read_file_tool, read_file_tool_def)
 
-        # Создаем словарь рабочих агентов для Оркестратора
         workers = {
             "CodingAgent": coding_agent,
             "TestingAgent": testing_agent,
@@ -62,8 +65,7 @@ def main():
             "ReviewerAgent": reviewer_agent,
         }
         
-        # Добавляем универсального агента
-        default_agent = Agent(name="DefaultAgent", api_key=api_key)
+        default_agent = Agent(name="DefaultAgent", **common_kwargs)
         default_agent.add_tool(list_files_tool, list_files_tool_def)
         default_agent.add_tool(read_file_tool, read_file_tool_def)
         workers["DefaultAgent"] = default_agent

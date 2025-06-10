@@ -61,6 +61,7 @@ class Agent:
         self.tool_definitions: List[Dict[str, Any]] = []
         self.conversation_history: List[Dict[str, Any]] = []
         self.max_iterations = max_iterations
+        self.system_prompt = "Ты — универсальный AI-ассистент."
 
     def add_tool(self, tool_func: Callable, tool_definition: Dict[str, Any]):
         """Добавляет инструмент и его определение."""
@@ -118,20 +119,15 @@ class Agent:
     def execute_task(self, briefing: str) -> str:
         """
         Выполняет одну задачу на основе предоставленного брифинга.
-        Теперь метод неинтерактивный и предназначен для вызова Оркестратором.
-
-        Args:
-            briefing: Полный контекст и описание задачи.
-
-        Returns:
-            Результат выполнения задачи в виде строки.
         """
         logging.info(f"Агент {self.name} получил задачу.")
         
-        self.conversation_history = []
-        self.conversation_history.append({"role": "system", "content": briefing})
-        self.conversation_history.append({"role": "user", "content": "Проанализируй предоставленный контекст и выполни свою задачу, используя инструменты."})
-
+        # Системный промпт определяет "личность" агента, а брифинг - контекст задачи.
+        self.conversation_history = [
+            {"role": "system", "content": self.system_prompt},
+            {"role": "user", "content": briefing}
+        ]
+        
         for _ in range(self.max_iterations):
             response_message = self._get_model_response()
 
