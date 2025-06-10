@@ -1,4 +1,5 @@
 import pytest
+import os
 from unittest.mock import MagicMock, ANY
 from app.agents.agent import Agent
 from app.agents.tools import read_file_definition
@@ -6,11 +7,19 @@ from app.agents.tools import read_file_definition
 # Фикстура для создания экземпляра агента с мок-клиентом OpenAI
 @pytest.fixture
 def agent_with_mock_client(mocker):
-    mock_openai_client = mocker.patch('openai.OpenAI')
-    # Создаем экземпляр агента, передавая мок
+    """Фикстура для создания агента с мок-клиентом OpenAI и переменными окружения."""
+    # 1. Мокируем переменные окружения, чтобы избежать реальных вызовов
+    mocker.patch.dict(os.environ, {"OPENAI_API_KEY": "DUMMY_KEY"})
+
+    # 2. Мокируем класс OpenAI *внутри модуля agent*, где он используется
+    mock_openai_class = mocker.patch('app.agents.agent.OpenAI')
+
+    # 3. Создаем агент. Его __init__ вызовет наш мок-класс OpenAI, а не реальный.
     agent = Agent(name="TestAgent", tools=[read_file_definition])
-    # Заменяем реальный клиент на мок в уже созданном экземпляре
-    agent.client = mock_openai_client.return_value
+
+    # 4. Явно присваиваем экземпляр мока клиенту агента для дальнейших настроек в тестах
+    agent.client = mock_openai_class.return_value
+    
     return agent
 
 def test_agent_responds_without_tool(agent_with_mock_client):
