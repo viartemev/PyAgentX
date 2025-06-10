@@ -51,11 +51,16 @@ def main():
         evaluator_agent = Agent(name="EvaluatorAgent", api_key=api_key, model="o4-mini")
         evaluator_agent.add_tool(read_file_tool)
 
+        # Агент-ревьюер, который проверяет качество кода
+        reviewer_agent = Agent(name="ReviewerAgent", api_key=api_key, model="gpt-4-turbo")
+        reviewer_agent.add_tool(read_file_tool)
+
         # Создаем словарь рабочих агентов для Оркестратора
         workers = {
             "CodingAgent": coding_agent,
             "TestingAgent": testing_agent,
             "EvaluatorAgent": evaluator_agent,
+            "ReviewerAgent": reviewer_agent,
         }
         # Добавляем универсального агента, если задача не назначена конкретному
         workers["DefaultAgent"] = Agent(name="DefaultAgent", api_key=api_key, model="o4-mini")
