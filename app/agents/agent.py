@@ -51,7 +51,7 @@ class Agent:
         self,
         name: str,
         api_key: str,
-        model: str = "gpt-4-turbo",
+        model: str = "o4-mini",
     ):
         self.name = name
         self.model = model
