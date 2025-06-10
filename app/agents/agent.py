@@ -3,145 +3,127 @@ import os
 import json
 import logging
 from openai import OpenAI
+from openai.types.chat import ChatCompletionMessage
 from dotenv import load_dotenv
 from app.agents.tools import ToolDefinition
 
-SYSTEM_PROMPT = ("You are an AI assistant")
+# Четкий и инструктивный системный промпт
+SYSTEM_PROMPT = (
+    "Ты — полезный ИИ-ассистент. У тебя есть доступ к набору инструментов для ответов на вопросы пользователя. "
+    "Когда пользователь задает вопрос, сначала подумай, нужно ли использовать инструмент. "
+    "Если решишь использовать инструмент, вызови его. После получения результата от инструмента, "
+    "используй этот результат для формулирования окончательного ответа пользователю. "
+    "Не просто констатируй вывод инструмента, а дай полезный и развернутый ответ, который включает в себя полученные данные."
+)
+
+# Настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 
 class Agent:
-    """AI-агент с поддержкой инструментов (OpenAI function calling).
-
-    Args:
-        name (str): Имя агента.
-        user_input (Optional[Callable[[], Tuple[str, bool]]]): Функция для пользовательского ввода.
-        tools (Optional[List[ToolDefinition]]): Список инструментов.
     """
-    def __init__(self, name: str, user_input: Optional[Callable[[], Tuple[str, bool]]] = None, tools: Optional[List[ToolDefinition]] = None):
+    ИИ-агент, который может использовать инструменты (функции) для ответов на вопросы.
+    """
+    def __init__(
+        self,
+        name: str,
+        user_input_handler: Optional[Callable[[], Tuple[str, bool]]] = None,
+        tools: Optional[List[ToolDefinition]] = None
+    ):
         load_dotenv()
         self.name = name
-        self.user_input = user_input
-        self.model = os.getenv("OPENAI_MODEL", "o4-mini")
+        self.user_input_handler = user_input_handler
+        self.tools = {tool.name: tool for tool in (tools or [])}
         self.api_key = os.getenv("OPENAI_API_KEY")
-        self.tools = tools or []
-        logging.basicConfig(level=logging.INFO)
+        self.model = os.getenv("OPENAI_MODEL", "gpt-4o") # Используем более способную модель по умолчанию
+        self.client = OpenAI(api_key=self.api_key)
 
-    def process(self, input: str) -> str:
-        """Основная логика обработки входных данных агентом."""
-        return f"Agent {self.name} processed: {input}"
+    def _execute_tool(self, tool_name: str, tool_args: Dict[str, Any]) -> str:
+        """Выполняет инструмент и возвращает его результат в виде строки."""
+        logging.info(f"Выполнение инструмента '{tool_name}' с аргументами: {tool_args}")
+        if tool_name in self.tools:
+            tool = self.tools[tool_name]
+            try:
+                result = tool.function(tool_args)
+                logging.info(f"Инструмент '{tool_name}' успешно выполнен.")
+                return str(result)
+            except Exception as e:
+                logging.error(f"Ошибка при выполнении инструмента '{tool_name}': {e}", exc_info=True)
+                return f"Ошибка: Не удалось выполнить инструмент '{tool_name}'. Причина: {e}"
+        else:
+            logging.warning(f"Попытка вызова неизвестного инструмента: '{tool_name}'")
+            return f"Ошибка: Инструмент '{tool_name}' не найден."
 
-    def execute_tool(self, name: str, input_data: Dict[str, Any]) -> str:
-        """Выполняет инструмент по имени с заданными аргументами."""
-        for tool in self.tools:
-            if tool.name == name:
-                try:
-                    result = tool.function(input_data)
-                    logging.info(f"Tool '{name}' executed with input {input_data}. Result: {result}")
-                    return result
-                except Exception as e:
-                    logging.error(f"Tool '{name}' failed: {e}")
-                    return f"[Tool '{name}' failed: {e}]"
-        logging.error(f"Tool '{name}' not found")
-        return f"[Tool '{name}' not found]"
-
-    def run_inference(self, conversation: List[Dict[str, Any]]) -> Any:
-        """Выполняет запрос к OpenAI Chat API, используя историю сообщений и инструменты."""
-        messages = []
-        for msg in conversation:
-            if msg["role"] == "user":
-                messages.append({"role": "user", "content": msg["content"]})
-            elif msg["role"] == "agent":
-                messages.append({"role": "assistant", "content": msg["content"]})
-            elif msg["role"] == "system":
-                messages.append({"role": "system", "content": msg["content"]})
-            elif msg["role"] == "assistant":
-                messages.append({"role": "assistant", "content": msg["content"]})
-        tools = [
-            {
-                "type": "function",
-                "function": {
-                    "name": tool.name,
-                    "description": tool.description,
-                    "parameters": tool.input_schema,
-                },
-            }
-            for tool in self.tools
-        ] if self.tools else None
-        try:
-            client = OpenAI(api_key=self.api_key)
-            response = client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                tools=tools,
-                tool_choice="auto" if tools else None,
-                max_completion_tokens=1024,
-            )
-            message = response.choices[0].message
-            # Если модель вызывает функцию
-            if hasattr(message, "tool_calls") and message.tool_calls:
-                results = []
-                for tool_call in message.tool_calls:
-                    tool_name = tool_call.function.name
-                    tool_args = json.loads(tool_call.function.arguments)
-                    tool_result = self.execute_tool(tool_name, tool_args)
-                    results.append({
-                        "role": "function",
-                        "name": tool_name,
-                        "content": tool_result
-                    })
-                return results[0] if results else {"role": "agent", "content": "(no tool result)"}
-            else:
-                return {"role": "agent", "content": message.content}
-        except Exception as e:
-            logging.error(f"OpenAI error: {e}")
-            return {"role": "agent", "content": f"[OpenAI error: {e}]"}
+    def _get_user_input(self) -> Optional[str]:
+        """Обрабатывает получение ввода от пользователя."""
+        print("\033[94mВы:\033[0m ", end="")
+        if self.user_input_handler:
+            user_input, ok = self.user_input_handler()
+            return user_input if ok else None
+        else:
+            try:
+                user_input = input()
+                return user_input if user_input.strip() else None
+            except EOFError:
+                return None
 
     def run(self) -> None:
-        """Интерактивный чат-цикл с поддержкой инструментов, system prompt и защитой от бесконечных вызовов."""
-        conversation: List[Dict[str, Any]] = [
-            {"role": "system", "content": SYSTEM_PROMPT}
-        ]
-        print("Chat with Agent (use Ctrl-C to quit)")
+        """Запускает основной цикл общения с агентом."""
+        print("Общение с агентом (используйте Ctrl+D или Ctrl+C для выхода)")
+        conversation: List[Dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT}]
+
         try:
             while True:
-                print("\u001b[94mYou\u001b[0m: ", end="")
-                if self.user_input:
-                    user_input, ok = self.user_input()
-                    if not ok:
-                        break
-                else:
-                    user_input = input()
-                    ok = True
-                if not ok or not user_input.strip():
+                user_input = self._get_user_input()
+                if user_input is None:
                     break
 
-                user_message = {"role": "user", "content": user_input}
-                conversation.append(user_message)
+                conversation.append({"role": "user", "content": user_input})
 
-                while True:
-                    agent_message = self.run_inference(conversation)
-                    print(f"Agent message: {agent_message}")
+                max_tool_calls = 5
+                for _ in range(max_tool_calls):
+                    logging.info(f"Вызов OpenAI с историей из {len(conversation)} сообщений:\n{json.dumps(conversation, indent=2, ensure_ascii=False)}")
+                    
+                    response: ChatCompletionMessage = self.client.chat.completions.create(
+                        model=self.model,
+                        messages=conversation,
+                        tools=[
+                            {"type": "function", "function": tool.to_openai_spec()}
+                            for tool in self.tools.values()
+                        ] if self.tools else None,
+                        tool_choice="auto" if self.tools else None,
+                    ).choices[0].message
+                    
+                    if not response.tool_calls:
+                        assistant_response = response.content or ""
+                        print(f"\033[93m{self.name}:\033[0m {assistant_response}")
+                        conversation.append({"role": "assistant", "content": assistant_response})
+                        break
+                    
+                    conversation.append(response.model_dump())
 
-                    if agent_message.get("role") == "agent":
-                        conversation.append(agent_message)
-                        print(f"\u001b[93m{self.name}\u001b[0m: {agent_message.get('content')}")
-                        break
-                    elif agent_message.get("role") == "function":
-                        print(f"\u001b[92mtool\u001b[0m: {agent_message.get('name')} => {agent_message.get('content')}")
-                        # Формируем естественный результат для LLM
-                        tool_result_message = {
-                            "role": "function",
-                            "name": agent_message["name"],
-                            "content": agent_message["content"]
-                        }
-                        conversation.append(tool_result_message)
-                        agent_message = self.run_inference(conversation)
-                        conversation.append(agent_message)
-                        print(f"\u001b[93m{self.name}\u001b[0m: {agent_message.get('content')}")
-                        break
-                    else:
-                        conversation.append(agent_message)
-                        print(f"\u001b[93m{self.name}\u001b[0m: (no response)")
-                        break
-        except KeyboardInterrupt:
-            print("\nExiting chat.")
+                    for tool_call in response.tool_calls:
+                        tool_name = tool_call.function.name
+                        tool_args_str = tool_call.function.arguments
+                        try:
+                            tool_args = json.loads(tool_args_str)
+                            tool_result = self._execute_tool(tool_name, tool_args)
+                        except json.JSONDecodeError:
+                            logging.error(f"Не удалось декодировать аргументы для '{tool_name}': {tool_args_str}")
+                            tool_result = f"Ошибка: Неверные аргументы для инструмента '{tool_name}'."
+                        
+                        conversation.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "name": tool_name,
+                            "content": tool_result,
+                        })
+                else:
+                    logging.warning("Достигнут лимит вызовов инструментов. Цикл прерван.")
+                    print(f"\033[91m{self.name}: Кажется, я застрял в цикле использования инструментов. Давай попробуем что-нибудь другое.\033[0m")
+        
+        except (KeyboardInterrupt, EOFError):
+            print("\nВыход из чата.")
 
