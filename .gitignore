@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Test & coverage
+.coverage
+htmlcov/
+.tox/
+.pytest_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Model/data artifacts
+*.ckpt
+*.h5
+*.pt
+*.pth
+*.onnx
+*.mlmodel
+*.joblib
+*.pkl
+
+# Env files
+.env
+.env.*
+
+# Misc
+*.bak
+*.tmp 
