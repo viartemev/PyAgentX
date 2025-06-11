@@ -94,6 +94,9 @@ def main():
 
         orchestrator.run(goal)
 
+    except KeyboardInterrupt:
+        print("\nOperation cancelled by user. Exiting...")
+        logging.info("User cancelled the operation.")
     except Exception as e:
         logging.critical("A critical error occurred: %s", e, exc_info=True)
         print(f"\nCritical Error: {e}")
