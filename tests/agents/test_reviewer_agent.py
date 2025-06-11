@@ -9,7 +9,7 @@ from app.agents.roles.reviewer_agent import ReviewerAgent
 def mock_retriever_fixture():
     """Fixture to create a mock KnowledgeRetriever."""
     # Создаем мок для всего класса KnowledgeRetriever
-    with patch('app.agents.roles.reviewer_agent.KnowledgeRetriever') as mock:
+    with patch('app.agents.agent.KnowledgeRetriever') as mock:
         # Настраиваем мок-экземпляр, который будет возвращаться при создании объекта
         mock_instance = MagicMock()
         # Настраиваем метод retrieve, чтобы он возвращал предсказуемые данные
@@ -24,29 +24,53 @@ def mock_retriever_fixture():
         mock.return_value = mock_instance
         yield mock_instance
 
-def test_reviewer_agent_uses_rag_context(mock_retriever_fixture):
+def test_reviewer_agent_uses_rag_context(mock_retriever_fixture, mocker):
     """
     Tests that the ReviewerAgent correctly uses the context from the KnowledgeRetriever.
     """
     # Arrange
-    # Инициализируем агента. Благодаря нашему фикстуре, self.retriever будет моком.
-    agent = ReviewerAgent(name="TestReviewer", api_key="test_key")
+    agent = ReviewerAgent(
+        name="TestReviewer",
+        role="Test Reviewer", 
+        goal="Review code",
+        use_rag=True,
+        api_key="fake_api_key",
+    )
     code_to_review = "my_variable = 1"
     
+    # Mock the model's response to stop the execution loop after one turn
+    mocker.patch.object(agent.client.chat.completions, 'create', return_value=MagicMock())
+
     # Act
-    # Получаем системный промпт, который должен быть обогащен контекстом
-    system_prompt = agent._get_system_prompt(code=code_to_review)
+    # Запускаем execute_task, который теперь содержит логику обогащения промпта
+    agent.execute_task(briefing=code_to_review)
 
     # Assert
-    # 1. Проверяем, что метод retrieve был вызван с правильным кодом
-    mock_retriever_fixture.retrieve.assert_called_once_with(query=code_to_review, top_k=3)
+    # 1. Проверяем, что метод retrieve был вызван с правильным запросом
+    # _create_rag_query вернет сам брифинг, если не найдет шаблон задачи
+    mock_retriever_fixture.retrieve.assert_called_once_with(query=code_to_review, top_k=3, filters=None)
     
-    # 2. Проверяем, что информация из мока попала в системный промпт
-    assert "RELEVANT KNOWLEDGE" in system_prompt
-    assert "Всегда используйте snake_case для переменных." in system_prompt
-    assert "python_style_guide.md" in system_prompt
+    # 2. Проверяем, что информация из мока попала в системный промпт в истории диалога
+    assert len(agent.conversation_history) > 0
+    system_prompt_from_history = agent.conversation_history[0]['content']
+    assert "RELEVANT KNOWLEDGE" in system_prompt_from_history
+    assert "Всегда используйте snake_case для переменных." in system_prompt_from_history
+    assert "python_style_guide.md" in system_prompt_from_history
     
-    # 3. Проверяем, что если ретривер ничего не нашел, используется дефолтный текст
+    # 3. Проверяем, что если ретривер ничего не нашел, секция RELEVANT KNOWLEDGE отсутствует
     mock_retriever_fixture.retrieve.return_value = []
-    system_prompt_no_knowledge = agent._get_system_prompt(code=code_to_review)
-    assert "No specific internal standards found" in system_prompt_no_knowledge 
+    mock_retriever_fixture.retrieve.reset_mock() # Сбрасываем мок
+    
+    agent_no_knowledge = ReviewerAgent(
+        name="TestReviewer2",
+        role="Test Reviewer",
+        goal="Review code",
+        use_rag=True,
+        api_key="fake_api_key",
+    )
+    mocker.patch.object(agent_no_knowledge.client.chat.completions, 'create', return_value=MagicMock())
+
+    agent_no_knowledge.execute_task(briefing=code_to_review)
+    system_prompt_no_knowledge = agent_no_knowledge.conversation_history[0]['content']
+    assert "RELEVANT KNOWLEDGE" not in system_prompt_no_knowledge
+    assert "You are a Senior Software Engineer" in system_prompt_no_knowledge 

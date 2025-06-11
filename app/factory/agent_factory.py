@@ -9,12 +9,6 @@ from typing import Dict, Tuple
 
 from app.agents.agent import Agent
 from app.agents.roles.task_decomposer import TaskDecomposer
-from app.agents.tools import (
-    read_file_tool, read_file_tool_def,
-    edit_file_tool, edit_file_tool_def,
-    list_files_tool, list_files_tool_def,
-    run_tests_tool, run_tests_tool_def,
-)
 
 def load_config(path: str) -> dict:
     """Loads a YAML configuration file."""
@@ -57,19 +51,8 @@ def create_agent_team(main_config_path: str) -> Tuple[TaskDecomposer, Dict[str, 
         
         agent_instance = agent_class(**init_params)
 
-        # Add tools based on agent name
-        if agent_name == "CodingAgent":
-            agent_instance.add_tool(read_file_tool, read_file_tool_def)
-            agent_instance.add_tool(edit_file_tool, edit_file_tool_def)
-            agent_instance.add_tool(list_files_tool, list_files_tool_def)
-        elif agent_name == "TestingAgent":
-            agent_instance.add_tool(read_file_tool, read_file_tool_def)
-            agent_instance.add_tool(run_tests_tool, run_tests_tool_def)
-        elif agent_name in ["ReviewerAgent", "EvaluatorAgent"]:
-            agent_instance.add_tool(read_file_tool, read_file_tool_def)
-        elif agent_name == "DefaultAgent":
-            agent_instance.add_tool(list_files_tool, list_files_tool_def)
-            agent_instance.add_tool(read_file_tool, read_file_tool_def)
+        # The logic for adding tools has been moved to the agent classes themselves.
+        # The factory is now cleaner and only responsible for instantiation.
         
         workers[agent_name] = agent_instance
 

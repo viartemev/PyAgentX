@@ -1,5 +1,8 @@
 """Evaluator Agent."""
 from app.agents.agent import Agent
+from app.agents.tools import (
+    read_file_tool, read_file_tool_def,
+)
 
 class EvaluatorAgent(Agent):
     """An agent that analyzes errors and results."""
@@ -10,6 +13,9 @@ class EvaluatorAgent(Agent):
             goal=goal,
             **kwargs,
         )
+        # Self-register tools
+        self.add_tool(read_file_tool, read_file_tool_def)
+        
         self.system_prompt = """
 You are EvaluatorAgent, an experienced QA engineer and systems analyst.
 Your primary task is to analyze the log from failed pytest runs and formulate a clear, concise, and single task for the CodingAgent to fix the code.

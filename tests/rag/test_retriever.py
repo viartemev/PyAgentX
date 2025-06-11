@@ -2,6 +2,7 @@
 import numpy as np
 import pytest
 from unittest.mock import patch, MagicMock
+from rank_bm25 import BM25Okapi
 
 from app.rag.retriever import KnowledgeRetriever
 
@@ -29,6 +30,10 @@ def mock_retriever(mocker) -> KnowledgeRetriever:
     ]
     retriever.embeddings = np.random.rand(4, 1536) # 4 чанка, 1536 измерений
     retriever.client = MagicMock() # Нам не нужен клиент, так как мы мокаем cosine_similarity
+
+    # 4. Инициализируем BM25, как это делается в методе load()
+    tokenized_corpus = [chunk["text"].split(" ") for chunk in retriever.chunks]
+    retriever.bm25 = BM25Okapi(tokenized_corpus)
     
     return retriever
 
@@ -60,6 +65,9 @@ def test_retriever_ranking_logic(
         'app.rag.retriever.cosine_similarity',
         return_value=np.array([mock_similarities])
     )
+    # Мокаем BM25 так, чтобы он не возвращал результатов и не влиял на фьюжн
+    mocker.patch.object(mock_retriever, '_keyword_search', return_value=[])
+
     # Так как `retrieve` вызывает `_get_embedding`, который вызывает `client`,
     # нам достаточно замокать вызов клиента.
     mock_retriever.client.embeddings.create.return_value = MagicMock(

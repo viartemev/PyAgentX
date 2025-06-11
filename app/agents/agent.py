@@ -12,6 +12,10 @@ from dotenv import load_dotenv
 import inspect
 
 from app.rag.retriever import KnowledgeRetriever
+from app.agents.tools import (
+    read_file_tool, read_file_tool_def,
+    list_files_tool, list_files_tool_def,
+)
 
 # Новый, улучшенный системный промпт, превращающий агента в программиста.
 SYSTEM_PROMPT = """
@@ -72,6 +76,10 @@ class Agent:
         self.max_iterations = max_iterations
         self.system_prompt = "Ты — универсальный AI-ассистент."
 
+        # Add default tools
+        self.add_tool(read_file_tool, read_file_tool_def)
+        self.add_tool(list_files_tool, list_files_tool_def)
+        
         # RAG specific attributes
         self.use_rag = use_rag
         self.rag_config = rag_config or {}

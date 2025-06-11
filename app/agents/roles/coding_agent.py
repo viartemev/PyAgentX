@@ -1,6 +1,11 @@
 """Coding Agent."""
 from typing import List, Dict
 from app.agents.agent import Agent
+from app.agents.tools import (
+    read_file_tool, read_file_tool_def,
+    edit_file_tool, edit_file_tool_def,
+    list_files_tool, list_files_tool_def,
+)
 
 
 class CodingAgent(Agent):
@@ -13,6 +18,11 @@ class CodingAgent(Agent):
             goal=goal,
             **kwargs,
         )
+        # Self-register tools
+        self.add_tool(read_file_tool, read_file_tool_def)
+        self.add_tool(edit_file_tool, edit_file_tool_def)
+        self.add_tool(list_files_tool, list_files_tool_def)
+
         self.system_prompt = (
             "You are a CodingAgent, an elite AI developer. Your task is to write, modify, and fix code."
             "You will be provided with the full plan, the history of previous steps, and your current task."

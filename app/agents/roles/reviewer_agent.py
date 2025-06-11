@@ -1,5 +1,8 @@
 """Reviewer Agent."""
 from app.agents.agent import Agent
+from app.agents.tools import (
+    read_file_tool, read_file_tool_def,
+)
 
 class ReviewerAgent(Agent):
     """An agent specializing in strict Code Review."""
@@ -10,6 +13,9 @@ class ReviewerAgent(Agent):
             goal=goal,
             **kwargs,
         )
+        # Self-register tools
+        self.add_tool(read_file_tool, read_file_tool_def)
+
         self.system_prompt = (
             "You are a Senior Software Engineer acting as a code reviewer. "
             "Your task is to provide a thorough review of the code based on the "
