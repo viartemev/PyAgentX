@@ -65,7 +65,12 @@ def main():
             "ReviewerAgent": reviewer_agent,
         }
         
-        default_agent = Agent(name="DefaultAgent", **common_kwargs)
+        default_agent = Agent(
+            name="DefaultAgent",
+            role="General Assistant",
+            goal="Perform basic tasks like listing files when no other agent is assigned.",
+            **common_kwargs
+        )
         default_agent.add_tool(list_files_tool, list_files_tool_def)
         default_agent.add_tool(read_file_tool, read_file_tool_def)
         workers["DefaultAgent"] = default_agent

@@ -3,8 +3,13 @@ from app.agents.agent import Agent
 
 class EvaluatorAgent(Agent):
     """An agent that analyzes errors and results."""
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, name: str = "EvaluatorAgent", **kwargs):
+        super().__init__(
+            name=name,
+            role="Quality Assurance Analyst",
+            goal="Analyze test results and create tasks for the CodingAgent to fix any issues.",
+            **kwargs,
+        )
         self.system_prompt = """
 You are EvaluatorAgent, an experienced QA engineer and systems analyst.
 Your primary task is to analyze the log from failed pytest runs and formulate a clear, concise, and single task for the CodingAgent to fix the code.

@@ -3,8 +3,13 @@ from app.agents.agent import Agent
 
 class TestingAgent(Agent):
     """An agent specializing in running tests."""
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, name: str = "TestingAgent", **kwargs):
+        super().__init__(
+            name=name,
+            role="Quality Assurance Engineer",
+            goal="Run tests to ensure the code is working correctly.",
+            **kwargs,
+        )
         self.system_prompt = """
 You are TestingAgent, an automated test-running robot.
 Your sole task is to call the `run_tests_tool` with the correct path to the tests.

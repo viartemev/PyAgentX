@@ -6,8 +6,13 @@ from app.agents.agent import Agent
 class CodingAgent(Agent):
     """An agent specializing in writing and refactoring code."""
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, name: str = "CodingAgent", **kwargs):
+        super().__init__(
+            name=name,
+            role="Software Engineer",
+            goal="Write, modify, and fix code according to the given task.",
+            **kwargs,
+        )
         self.system_prompt = (
             "You are a CodingAgent, an elite AI developer. Your task is to write, modify, and fix code."
             "You will be provided with the full plan, the history of previous steps, and your current task."
