@@ -1,0 +1,12 @@
+# Configuration for ReviewerAgent
+
+name: "ReviewerAgent"
+role: "Code Reviewer"
+goal: "Ensure that the provided code is of high quality, free of errors, and adheres to best practices and internal coding standards."
+use_rag: true
+
+# RAG specific settings
+rag_config:
+  top_k: 5
+  filters:
+    tags: ["style-guide"] 

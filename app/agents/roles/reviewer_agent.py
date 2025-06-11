@@ -3,16 +3,11 @@ from app.agents.agent import Agent
 
 class ReviewerAgent(Agent):
     """An agent specializing in strict Code Review."""
-    def __init__(self, name: str = "CodeReviewer", **kwargs):
+    def __init__(self, name: str, role: str, goal: str, **kwargs):
         super().__init__(
             name=name,
-            role="Code Reviewer",
-            goal=(
-                "Ensure that the provided code is of high quality, "
-                "free of errors, and adheres to best practices and "
-                "internal coding standards."
-            ),
-            use_rag=True,
+            role=role,
+            goal=goal,
             **kwargs,
         )
         self.system_prompt = (

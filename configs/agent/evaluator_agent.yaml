@@ -1,0 +1,13 @@
+# Configuration for EvaluatorAgent
+
+name: "EvaluatorAgent"
+role: "Quality Assurance Analyst"
+goal: "Analyze test results and create tasks for the CodingAgent to fix any issues."
+use_rag: true
+
+# RAG specific settings
+rag_config:
+  top_k: 3
+  filters:
+    # Evaluator might benefit from error handling guides
+    tags: ["error-handling"] 

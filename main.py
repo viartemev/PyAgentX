@@ -1,5 +1,7 @@
 import logging
 import os
+import yaml
+from importlib import import_module
 from dotenv import load_dotenv
 from app.agents.agent import Agent
 from app.agents.tools import (
@@ -8,14 +10,18 @@ from app.agents.tools import (
     list_files_tool, list_files_tool_def,
     run_tests_tool, run_tests_tool_def,
 )
-from app.orchestration.decomposer import TaskDecomposer
 from app.orchestration.orchestrator import Orchestrator
-from app.agents.roles import (
-    CodingAgent,
-    ReviewerAgent,
-    TestingAgent,
-    EvaluatorAgent,
-)
+
+def load_config(path: str) -> dict:
+    """Loads a YAML configuration file."""
+    with open(path, 'r') as f:
+        return yaml.safe_load(f)
+
+def get_class_from_string(class_path: str):
+    """Dynamically imports a class from a string path."""
+    module_path, class_name = class_path.rsplit('.', 1)
+    module = import_module(module_path)
+    return getattr(module, class_name)
 
 def main():
     """Main function to run the AI agent."""
@@ -26,7 +32,7 @@ def main():
         level=logging.INFO,
         format="%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s",
         handlers=[
-            logging.FileHandler("agent_activity.log"),
+            logging.FileHandler("agent_activity.log", mode='w'),
             logging.StreamHandler()
         ]
     )
@@ -38,81 +44,45 @@ def main():
         return
 
     try:
-        # 1. Initialize the agent team
-        logging.info("Initializing agent team...")
+        logging.info("Loading configurations...")
+        main_config = load_config('configs/config.yaml')
         
-        common_kwargs = {"api_key": api_key, "model": "o4-mini"}
+        workers = {}
+        common_kwargs = {"api_key": api_key, "model": main_config.get('default_model', 'o4-mini')}
 
-        coding_agent = CodingAgent(
-            name="CodingAgent", 
-            use_rag=True, 
-            rag_config={
-                "top_k": 3,
-                "filters": {"tags": ["code-example", "style-guide"]}
-            },
-            **common_kwargs
-        )
-        coding_agent.add_tool(read_file_tool, read_file_tool_def)
-        coding_agent.add_tool(edit_file_tool, edit_file_tool_def)
-        coding_agent.add_tool(list_files_tool, list_files_tool_def)
+        for agent_name, agent_info in main_config['agents'].items():
+            logging.info(f"Initializing {agent_name}...")
+            
+            # Load agent-specific config
+            agent_config_path = agent_info['config_path']
+            agent_config = load_config(agent_config_path)
 
-        testing_agent = TestingAgent(
-            name="TestingAgent", 
-            use_rag=True, 
-            rag_config={
-                "top_k": 2,
-                "filters": {"tags": ["testing-guide"]}
-            },
-            **common_kwargs
-        )
-        testing_agent.add_tool(read_file_tool, read_file_tool_def)
-        testing_agent.add_tool(run_tests_tool, run_tests_tool_def)
+            # Get the agent class dynamically
+            agent_class = get_class_from_string(agent_info['_target_'])
+            
+            # Prepare initialization parameters
+            init_params = agent_config.copy()
+            init_params.update(common_kwargs)
+            
+            # Create agent instance
+            agent_instance = agent_class(**init_params)
 
-        evaluator_agent = EvaluatorAgent(
-            name="EvaluatorAgent", 
-            use_rag=True, 
-            rag_config={
-                "top_k": 4,
-                "filters": {"tags": ["error-analysis", "debugging"]}
-            },
-            **common_kwargs
-        )
-        evaluator_agent.add_tool(read_file_tool, read_file_tool_def)
+            # Add tools based on agent name/role
+            if agent_name == "CodingAgent":
+                agent_instance.add_tool(read_file_tool, read_file_tool_def)
+                agent_instance.add_tool(edit_file_tool, edit_file_tool_def)
+                agent_instance.add_tool(list_files_tool, list_files_tool_def)
+            elif agent_name == "TestingAgent":
+                agent_instance.add_tool(read_file_tool, read_file_tool_def)
+                agent_instance.add_tool(run_tests_tool, run_tests_tool_def)
+            elif agent_name in ["ReviewerAgent", "EvaluatorAgent", "DefaultAgent"]:
+                agent_instance.add_tool(read_file_tool, read_file_tool_def)
+            
+            workers[agent_name] = agent_instance
 
-        reviewer_agent = ReviewerAgent(
-            name="ReviewerAgent",
-            # This agent already has use_rag=True in its own __init__
-            rag_config={
-                "top_k": 5,
-                "filters": {"tags": ["style-guide"]}
-            },
-            **common_kwargs
-        )
-        reviewer_agent.add_tool(read_file_tool, read_file_tool_def)
-
-        workers = {
-            "CodingAgent": coding_agent,
-            "TestingAgent": testing_agent,
-            "EvaluatorAgent": evaluator_agent,
-            "ReviewerAgent": reviewer_agent,
-        }
-        
-        default_agent = Agent(
-            name="DefaultAgent",
-            role="General Assistant",
-            goal="Perform basic tasks like listing files when no other agent is assigned.",
-            **common_kwargs
-        )
-        default_agent.add_tool(list_files_tool, list_files_tool_def)
-        default_agent.add_tool(read_file_tool, read_file_tool_def)
-        workers["DefaultAgent"] = default_agent
-
-        # Planner
-        planner = TaskDecomposer(api_key=api_key, model="o4-mini")
-        
         # The orchestrator now manages the team
         orchestrator = Orchestrator(
-            task_decomposer=planner,
+            task_decomposer=workers.pop("TaskDecomposer"),
             worker_agents=workers
         )
 

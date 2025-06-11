@@ -3,11 +3,11 @@ from app.agents.agent import Agent
 
 class EvaluatorAgent(Agent):
     """An agent that analyzes errors and results."""
-    def __init__(self, name: str = "EvaluatorAgent", **kwargs):
+    def __init__(self, name: str, role: str, goal: str, **kwargs):
         super().__init__(
             name=name,
-            role="Quality Assurance Analyst",
-            goal="Analyze test results and create tasks for the CodingAgent to fix any issues.",
+            role=role,
+            goal=goal,
             **kwargs,
         )
         self.system_prompt = """

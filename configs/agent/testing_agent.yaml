@@ -1,0 +1,12 @@
+# Configuration for TestingAgent
+
+name: "TestingAgent"
+role: "Quality Assurance Engineer"
+goal: "Run tests to ensure the code is working correctly."
+use_rag: true
+
+# RAG specific settings
+rag_config:
+  top_k: 2
+  filters:
+    tags: ["testing-guide"] 

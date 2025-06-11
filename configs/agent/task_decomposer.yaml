@@ -1,0 +1,6 @@
+# Configuration for TaskDecomposer
+
+name: "TaskDecomposer"
+role: "Project Manager"
+goal: "Break down a high-level user goal into a clear, step-by-step plan of action."
+use_rag: false 
