@@ -43,16 +43,16 @@ def main():
         
         common_kwargs = {"api_key": api_key, "model": "o4-mini"}
 
-        coding_agent = CodingAgent(name="CodingAgent", **common_kwargs)
+        coding_agent = CodingAgent(name="CodingAgent", use_rag=True, **common_kwargs)
         coding_agent.add_tool(read_file_tool, read_file_tool_def)
         coding_agent.add_tool(edit_file_tool, edit_file_tool_def)
         coding_agent.add_tool(list_files_tool, list_files_tool_def)
 
-        testing_agent = TestingAgent(name="TestingAgent", **common_kwargs)
+        testing_agent = TestingAgent(name="TestingAgent", use_rag=True, **common_kwargs)
         testing_agent.add_tool(read_file_tool, read_file_tool_def)
         testing_agent.add_tool(run_tests_tool, run_tests_tool_def)
 
-        evaluator_agent = EvaluatorAgent(name="EvaluatorAgent", **common_kwargs)
+        evaluator_agent = EvaluatorAgent(name="EvaluatorAgent", use_rag=True, **common_kwargs)
         evaluator_agent.add_tool(read_file_tool, read_file_tool_def)
 
         reviewer_agent = ReviewerAgent(name="ReviewerAgent", **common_kwargs)
