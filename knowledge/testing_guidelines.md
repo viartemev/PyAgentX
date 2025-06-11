@@ -1,12 +1,12 @@
-# Руководство по Написанию Тестов
+# Testing Guidelines
 
-## 1. Структура теста: Arrange-Act-Assert (AAA)
+## 1. Test Structure: Arrange-Act-Assert (AAA)
 
-Все тесты должны следовать паттерну AAA для ясности и читаемости.
+All tests should follow the AAA pattern for clarity and readability.
 
-- **Arrange (Подготовка):** Подготовьте все необходимые данные и моки.
-- **Act (Действие):** Вызовите тестируемую функцию или метод.
-- **Assert (Проверка):** Проверьте, что результат соответствует ожиданиям.
+- **Arrange:** Prepare all necessary data and mocks.
+- **Act:** Call the function or method being tested.
+- **Assert:** Check that the result meets expectations.
 
 ```python
 def test_user_creation():
@@ -22,15 +22,15 @@ def test_user_creation():
     mock_db.add.assert_called_once()
 ```
 
-## 2. Именование тестов
+## 2. Test Naming
 
-Имена тестовых функций должны быть описательными и начинаться с `test_`. Следуйте формату `test_<что_тестируем>_<при_каких_условиях>_<ожидаемый_результат>`.
+Test function names should be descriptive and start with `test_`. Follow the format `test_<what_is_tested>_<under_what_conditions>_<expected_result>`.
 
-**Пример:** `test_add_items_with_negative_quantity_raises_error()`
+**Example:** `test_add_items_with_negative_quantity_raises_error()`
 
-## 3. Используйте `pytest.raises` для проверки исключений
+## 3. Use `pytest.raises` for Exception Testing
 
-Для проверки того, что код корректно выбрасывает исключения, используйте контекстный менеджер `pytest.raises`.
+To verify that code correctly raises exceptions, use the `pytest.raises` context manager.
 
 ```python
 import pytest

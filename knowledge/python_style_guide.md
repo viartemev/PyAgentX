@@ -1,26 +1,26 @@
 # Python Style Guide
 
-- **Именование:** Используйте `snake_case` для переменных и функций. Имена классов должны использовать `CamelCase`. Константы должны быть в `UPPER_SNAKE_CASE`.
-- **Длина строки:** Максимальная длина строки - 99 символов.
-- **Докстринги:** Все публичные модули, функции, классы и методы должны иметь докстринги в стиле Google.
-- **Импорты:** Группируйте импорты в следующем порядке: стандартная библиотека, сторонние библиотеки, локальные приложения.
+- **Naming:** Use `snake_case` for variables and functions. Class names should use `CamelCase`. Constants should be in `UPPER_SNAKE_CASE`.
+- **Line Length:** The maximum line length is 99 characters.
+- **Docstrings:** All public modules, functions, classes, and methods must have Google-style docstrings.
+- **Imports:** Group imports in the following order: standard library, third-party libraries, local application.
 
-## Форматирование строк
+## String Formatting
 
-- **f-строки:** Всегда предпочитайте f-строки для форматирования вместо `str.format()` или оператора `%`.
+- **f-strings:** Always prefer f-strings for formatting instead of `str.format()` or the `%` operator.
 
-**Хорошо:**
-`user_info = f"Пользователь {user.name} с ID {user.id}"`
+**Good:**
+`user_info = f"User {user.name} with ID {user.id}"`
 
-**Плохо:**
-`user_info = "Пользователь {} с ID {}".format(user.name, user.id)`
+**Bad:**
+`user_info = "User {} with ID {}".format(user.name, user.id)`
 
 ## List Comprehensions
 
-- **Простота:** Используйте list comprehensions для создания списков из существующих итерируемых объектов, но только если логика остается простой и читаемой. Если требуется сложная логика или несколько вложенных циклов, используйте обычный цикл `for`.
+- **Simplicity:** Use list comprehensions to create lists from existing iterables, but only if the logic remains simple and readable. If complex logic or multiple nested loops are required, use a regular `for` loop.
 
-**Хорошо:**
+**Good:**
 `squares = [x*x for x in range(10)]`
 
-**Избегайте (сложно для чтения):**
+**Avoid (hard to read):**
 `complex_list = [x + y for x in range(10) for y in range(5) if x % 2 == 0 if y % 3 == 0]` 

@@ -1,6 +1,6 @@
 [
     {
-        "text": "Руководство по Написанию Тестов\n1. Структура теста: Arrange-Act-Assert (AAA)\nВсе тесты должны следовать паттерну AAA для ясности и читаемости. Arrange (Подготовка): Подготовьте все необходимые данные и моки. Act (Действие): Вызовите тестируемую функцию или метод.",
+        "text": "Testing Guidelines\n1. Test Structure: Arrange-Act-Assert (AAA)\nAll tests should follow the AAA pattern for clarity and readability. Arrange: Prepare all necessary data and mocks. Act: Call the function or method being tested. Assert: Check that the result meets expectations. ```python def test_user_creation(): # Arrange user_data = {\"username\": \"test\", \"email\": \"test@example.com\"} mock_db = MagicMock()\n# Act\ncreated_user = create_user(db=mock_db, data=user_data)",
         "source": "testing_guidelines.md",
         "metadata": {
             "tags": [],
@@ -9,7 +9,7 @@
         }
     },
     {
-        "text": "Assert (Проверка): Проверьте, что результат соответствует ожиданиям. ```python def test_user_creation(): # Arrange user_data = {\"username\": \"test\", \"email\": \"test@example.com\"} mock_db = MagicMock()\n# Act\ncreated_user = create_user(db=mock_db, data=user_data)",
+        "text": "# Assert\nassert created_user.username == user_data[\"username\"]\nmock_db.add.assert_called_once()\n```\n2. Test Naming\nTest function names should be descriptive and start with test_. Follow the format test_<what_is_tested>_<under_what_conditions>_<expected_result>. Example: test_add_items_with_negative_quantity_raises_error()\n3. Use pytest.raises for Exception Testing\nTo verify that code correctly raises exceptions, use the pytest.raises context manager. ```python import pytest\ndef test_divide_by_zero_raises_exception(): with pytest.raises(ZeroDivisionError): divide(10, 0) ```",
         "source": "testing_guidelines.md",
         "metadata": {
             "tags": [],
@@ -18,25 +18,7 @@
         }
     },
     {
-        "text": "# Assert\nassert created_user.username == user_data[\"username\"]\nmock_db.add.assert_called_once()\n```\n2. Именование тестов\nИмена тестовых функций должны быть описательными и начинаться с test_. Следуйте формату test_<что_тестируем>_<при_каких_условиях>_<ожидаемый_результат>. Пример: test_add_items_with_negative_quantity_raises_error()\n3.",
-        "source": "testing_guidelines.md",
-        "metadata": {
-            "tags": [],
-            "full_path": "knowledge/testing_guidelines.md",
-            "chunk_id": "testing_guidelines.md_2"
-        }
-    },
-    {
-        "text": "Используйте pytest.raises для проверки исключений\nДля проверки того, что код корректно выбрасывает исключения, используйте контекстный менеджер pytest.raises. ```python import pytest\ndef test_divide_by_zero_raises_exception(): with pytest.raises(ZeroDivisionError): divide(10, 0) ```",
-        "source": "testing_guidelines.md",
-        "metadata": {
-            "tags": [],
-            "full_path": "knowledge/testing_guidelines.md",
-            "chunk_id": "testing_guidelines.md_3"
-        }
-    },
-    {
-        "text": "Принципы Обработки Ошибок\n1. Предпочитайте специфичные исключения\nВсегда перехватывайте наиболее специфичный тип исключения. Избегайте использования except Exception: без крайней необходимости.",
+        "text": "Error Handling Principles\n1. Prefer Specific Exceptions\nAlways catch the most specific exception type possible. Avoid using except Exception: unless absolutely necessary. Bad: python try: # some code except Exception as e: log.error(\"An error occurred\")\nGood: python try: # some code except FileNotFoundError as e: log.error(f\"File not found: {e}\") except (KeyError, ValueError) as e: log.warning(f\"Data error: {e}\")\n2. Use Custom Exceptions\nFor errors specific to your application's domain logic, create your own exception classes.",
         "source": "error_handling.md",
         "metadata": {
             "tags": [],
@@ -45,7 +27,7 @@
         }
     },
     {
-        "text": "Плохо: python try: # какой-то код except Exception as e: log.error(\"Произошла ошибка\")\nХорошо: python try: # какой-то код except FileNotFoundError as e: log.error(f\"Файл не найден: {e}\") except (KeyError, ValueError) as e: log.warning(f\"Ошибка данных: {e}\")\n2.",
+        "text": "This makes the code more readable and allows calling code to handle specific failures precisely. ```python class InsufficientBalanceError(Exception): \"\"\"Exception raised when the account balance is too low.\"\"\" pass\ndef withdraw(amount): if amount > current_balance: raise InsufficientBalanceError(\"Insufficient funds in the account\") ```\n3. Log Errors Correctly\nWhen catching an exception, be sure to log the full information, including the stack trace, to simplify debugging. ```python import logging\ntry: # ... except Exception as e: logging.error(\"An unexpected error occurred\", exc_info=True)",
         "source": "error_handling.md",
         "metadata": {
             "tags": [],
@@ -54,34 +36,7 @@
         }
     },
     {
-        "text": "Используйте кастомные исключения\nДля ошибок, специфичных для доменной логики вашего приложения, создавайте собственные классы исключений. Это делает код более читаемым и позволяет вызывающему коду точечно обрабатывать конкретные сбои.",
-        "source": "error_handling.md",
-        "metadata": {
-            "tags": [],
-            "full_path": "knowledge/error_handling.md",
-            "chunk_id": "error_handling.md_2"
-        }
-    },
-    {
-        "text": "```python class InsufficientBalanceError(Exception): \"\"\"Исключение, возникающее при недостаточном балансе.\"\"\" pass\ndef withdraw(amount): if amount > current_balance: raise InsufficientBalanceError(\"Недостаточно средств на счете\") ```\n3. Логируйте ошибки правильно\nПри перехвате исключения обязательно логируйте полную информацию, включая трассировку стека, чтобы упростить отладку.",
-        "source": "error_handling.md",
-        "metadata": {
-            "tags": [],
-            "full_path": "knowledge/error_handling.md",
-            "chunk_id": "error_handling.md_3"
-        }
-    },
-    {
-        "text": "```python import logging\ntry: # ... except Exception as e: logging.error(\"Произошла непредвиденная ошибка\", exc_info=True)",
-        "source": "error_handling.md",
-        "metadata": {
-            "tags": [],
-            "full_path": "knowledge/error_handling.md",
-            "chunk_id": "error_handling.md_4"
-        }
-    },
-    {
-        "text": "API Design Principles\nРесурсы: Используйте существительные во множественном числе для именования эндпоинтов (например, /users, /products). HTTP-методы: Используйте правильные HTTP-глаголы для действий:\nGET для получения данных. POST для создания новых ресурсов. PUT / PATCH для обновления. DELETE для удаления.",
+        "text": "API Design Principles\nResources: Use plural nouns for endpoint naming (e.g., /users, /products). HTTP Methods: Use the correct HTTP verbs for actions:\nGET for retrieving data. POST for creating new resources. PUT / PATCH for updating. DELETE for deleting. Versioning: Include the API version in the URL (e.g., /api/v1/users).",
         "source": "api_design.md",
         "metadata": {
             "tags": [],
@@ -90,16 +45,7 @@
         }
     },
     {
-        "text": "Версионирование: Включайте версию API в URL (например, /api/v1/users).",
-        "source": "api_design.md",
-        "metadata": {
-            "tags": [],
-            "full_path": "knowledge/api_design.md",
-            "chunk_id": "api_design.md_1"
-        }
-    },
-    {
-        "text": "Python Style Guide\nИменование: Используйте snake_case для переменных и функций. Имена классов должны использовать CamelCase. Константы должны быть в UPPER_SNAKE_CASE. Длина строки: Максимальная длина строки - 99 символов. Докстринги: Все публичные модули, функции, классы и методы должны иметь докстринги в стиле Google.",
+        "text": "Python Style Guide\nNaming: Use snake_case for variables and functions. Class names should use CamelCase. Constants should be in UPPER_SNAKE_CASE. Line Length: The maximum line length is 99 characters. Docstrings: All public modules, functions, classes, and methods must have Google-style docstrings. Imports: Group imports in the following order: standard library, third-party libraries, local application. String Formatting\nf-strings: Always prefer f-strings for formatting instead of str.format() or the % operator.",
         "source": "python_style_guide.md",
         "metadata": {
             "tags": [],
@@ -108,7 +54,7 @@
         }
     },
     {
-        "text": "Импорты: Группируйте импорты в следующем порядке: стандартная библиотека, сторонние библиотеки, локальные приложения. Форматирование строк\nf-строки: Всегда предпочитайте f-строки для форматирования вместо str.format() или оператора %.",
+        "text": "Good: user_info = f\"User {user.name} with ID {user.id}\"\nBad: user_info = \"User {} with ID {}\".format(user.name, user.id)\nList Comprehensions\nSimplicity: Use list comprehensions to create lists from existing iterables, but only if the logic remains simple and readable. If complex logic or multiple nested loops are required, use a regular for loop.",
         "source": "python_style_guide.md",
         "metadata": {
             "tags": [],
@@ -117,7 +63,7 @@
         }
     },
     {
-        "text": "Хорошо: user_info = f\"Пользователь {user.name} с ID {user.id}\"\nПлохо: user_info = \"Пользователь {} с ID {}\".format(user.name, user.id)\nList Comprehensions\nПростота: Используйте list comprehensions для создания списков из существующих итерируемых объектов, но только если логика остается простой и читаемой.",
+        "text": "Good: squares = [x*x for x in range(10)]\nAvoid (hard to read): complex_list = [x + y for x in range(10) for y in range(5) if x % 2 == 0 if y % 3 == 0]",
         "source": "python_style_guide.md",
         "metadata": {
             "tags": [],
@@ -126,12 +72,47 @@
         }
     },
     {
-        "text": "Если требуется сложная логика или несколько вложенных циклов, используйте обычный цикл for. Хорошо: squares = [x*x for x in range(10)]\nИзбегайте (сложно для чтения): complex_list = [x + y for x in range(10) for y in range(5) if x % 2 == 0 if y % 3 == 0]",
-        "source": "python_style_guide.md",
+        "text": "Agent Tool Creation Guide\nThis document outlines the best practices for creating new tool functions that can be used by AI agents in our system. 1. Tool Function Structure\nEvery tool must be a wrapper around the core logic and accept a single argument of type Dict[str, Any]. This ensures a unified interface for all tools. ```python\nCorrect\ndef my_tool(input_data: Dict[str, Any]) -> str: #... Incorrect\ndef my_tool(param1: str, param2: int) -> str: #... ```\n2. Mandatory Error Handling\nA tool should never crash with an unhandled exception.",
+        "source": "tool_creation_guide.md",
         "metadata": {
-            "tags": [],
-            "full_path": "knowledge/python_style_guide.md",
-            "chunk_id": "python_style_guide.md_3"
+            "tags": [
+                "code-example"
+            ],
+            "full_path": "knowledge/code-example/tool_creation_guide.md",
+            "chunk_id": "tool_creation_guide.md_0"
+        }
+    },
+    {
+        "text": "Always use try-except and return an informative error message as a string. python def substring_tool(input_data: Dict[str, Any]) -> str: try: text = input_data['text'] start = input_data['start'] # ... core logic ... return result except KeyError as e: return f\"Error: Missing required key {e} in input_data.\" except Exception as e: return f\"An unexpected error occurred: {e}\"\n3. Detailed Docstrings\nAlways write detailed docstrings in Google-style. Describe the function's purpose, all keys in the input_data dictionary, and the return value. 4.",
+        "source": "tool_creation_guide.md",
+        "metadata": {
+            "tags": [
+                "code-example"
+            ],
+            "full_path": "knowledge/code-example/tool_creation_guide.md",
+            "chunk_id": "tool_creation_guide.md_1"
+        }
+    },
+    {
+        "text": "Tool Definition (_tool_def)\nEvery tool must have a corresponding _tool_def definition. This is a dictionary that describes the function's signature for the OpenAI API, allowing the agent to understand how to call your tool.",
+        "source": "tool_creation_guide.md",
+        "metadata": {
+            "tags": [
+                "code-example"
+            ],
+            "full_path": "knowledge/code-example/tool_creation_guide.md",
+            "chunk_id": "tool_creation_guide.md_2"
+        }
+    },
+    {
+        "text": "python substring_tool_def = { \"type\": \"function\", \"function\": { \"name\": \"substring_tool\", \"description\": \"Extracts a substring from text.\", \"parameters\": { \"type\": \"object\", \"properties\": { \"text\": {\"type\": \"string\", \"description\": \"The source text.\"}, \"start\": {\"type\": \"integer\", \"description\": \"The starting index.\"}, }, \"required\": [\"text\", \"start\"], }, }, }",
+        "source": "tool_creation_guide.md",
+        "metadata": {
+            "tags": [
+                "code-example"
+            ],
+            "full_path": "knowledge/code-example/tool_creation_guide.md",
+            "chunk_id": "tool_creation_guide.md_3"
         }
     }
 ]
