@@ -1,33 +1,17 @@
 import logging
 import os
-import yaml
-from importlib import import_module
+import typer
 from dotenv import load_dotenv
-from app.agents.agent import Agent
-from app.agents.tools import (
-    read_file_tool, read_file_tool_def,
-    edit_file_tool, edit_file_tool_def,
-    list_files_tool, list_files_tool_def,
-    run_tests_tool, run_tests_tool_def,
-)
+from typing_extensions import Annotated
+
+from app.factory.agent_factory import create_agent_team
 from app.orchestration.orchestrator import Orchestrator
 
-def load_config(path: str) -> dict:
-    """Loads a YAML configuration file."""
-    with open(path, 'r') as f:
-        return yaml.safe_load(f)
+# Create a typer app
+app = typer.Typer()
 
-def get_class_from_string(class_path: str):
-    """Dynamically imports a class from a string path."""
-    module_path, class_name = class_path.rsplit('.', 1)
-    module = import_module(module_path)
-    return getattr(module, class_name)
-
-def main():
-    """Main function to run the AI agent."""
-    load_dotenv()
-
-    # Setup logging
+def setup_logging():
+    """Configures the logging for the application."""
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s",
@@ -37,69 +21,49 @@ def main():
         ]
     )
 
+@app.command()
+def run(
+    goal: Annotated[str, typer.Argument(help="The high-level goal for the agent team to accomplish.")],
+    config: Annotated[str, typer.Option(help="Path to the main configuration file.")] = "configs/config.yaml"
+):
+    """
+    Runs the multi-agent system to accomplish a given goal.
+    """
+    load_dotenv()
+    setup_logging()
+    
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         logging.error("OPENAI_API_KEY not found in .env file.")
-        print("Error: Please make sure your .env file contains OPENAI_API_KEY.")
-        return
+        typer.echo("Error: Please make sure your .env file contains OPENAI_API_KEY.")
+        raise typer.Exit(code=1)
 
     try:
-        logging.info("Loading configurations...")
-        main_config = load_config('configs/config.yaml')
-        
-        workers = {}
-        common_kwargs = {"api_key": api_key, "model": main_config.get('default_model', 'o4-mini')}
+        # Create the agent team using the factory
+        task_decomposer, worker_agents = create_agent_team(config)
 
-        for agent_name, agent_info in main_config['agents'].items():
-            logging.info(f"Initializing {agent_name}...")
-            
-            # Load agent-specific config
-            agent_config_path = agent_info['config_path']
-            agent_config = load_config(agent_config_path)
-
-            # Get the agent class dynamically
-            agent_class = get_class_from_string(agent_info['_target_'])
-            
-            # Prepare initialization parameters
-            init_params = agent_config.copy()
-            init_params.update(common_kwargs)
-            
-            # Create agent instance
-            agent_instance = agent_class(**init_params)
-
-            # Add tools based on agent name/role
-            if agent_name == "CodingAgent":
-                agent_instance.add_tool(read_file_tool, read_file_tool_def)
-                agent_instance.add_tool(edit_file_tool, edit_file_tool_def)
-                agent_instance.add_tool(list_files_tool, list_files_tool_def)
-            elif agent_name == "TestingAgent":
-                agent_instance.add_tool(read_file_tool, read_file_tool_def)
-                agent_instance.add_tool(run_tests_tool, run_tests_tool_def)
-            elif agent_name in ["ReviewerAgent", "EvaluatorAgent", "DefaultAgent"]:
-                agent_instance.add_tool(read_file_tool, read_file_tool_def)
-            
-            workers[agent_name] = agent_instance
-
-        # The orchestrator now manages the team
+        # Initialize and run the orchestrator
         orchestrator = Orchestrator(
-            task_decomposer=workers.pop("TaskDecomposer"),
-            worker_agents=workers
+            task_decomposer=task_decomposer,
+            worker_agents=worker_agents
         )
-
-        # 2. Request the goal and run the orchestrator
-        goal = input("Please enter your high-level goal: ")
-        if not goal:
-            print("Goal cannot be empty.")
-            return
-
+        
+        typer.echo(f"🚀 Starting agent team to accomplish goal: {goal}")
         orchestrator.run(goal)
+        typer.echo("✅ Goal accomplished successfully!")
 
+    except FileNotFoundError as e:
+        logging.error(f"Configuration file not found: {e}")
+        typer.echo(f"Error: Configuration file not found at '{config}'. Please check the path.")
+        raise typer.Exit(code=1)
     except KeyboardInterrupt:
-        print("\nOperation cancelled by user. Exiting...")
+        typer.echo("\nOperation cancelled by user. Exiting...")
         logging.info("User cancelled the operation.")
+        raise typer.Exit()
     except Exception as e:
         logging.critical("A critical error occurred: %s", e, exc_info=True)
-        print(f"\nCritical Error: {e}")
+        typer.echo(f"\n🚨 Critical Error: {e}")
+        raise typer.Exit(code=1)
 
 if __name__ == "__main__":
-    main() 
+    app() 

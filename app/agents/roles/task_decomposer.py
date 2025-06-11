@@ -1,5 +1,7 @@
 """Task Decomposer Agent."""
 from app.agents.agent import Agent
+import logging
+import json
 
 class TaskDecomposer(Agent):
     """
@@ -65,17 +67,31 @@ Your output:
         """
         task_briefing = f"Create a step-by-step plan to achieve the following goal: {goal}"
         
-        # We directly call the chat completion and parse the result here
-        response_json = self.chat_completion(
-            messages=[
-                {"role": "system", "content": self.system_prompt},
-                {"role": "user", "content": task_briefing},
-            ],
-            is_json=True,  # Assuming a chat_completion method that can enforce JSON output
-        )
-        
-        if response_json:
-            return response_json
-        else:
-            # Fallback or error handling
-            return [{"step": 1, "assignee": "DefaultAgent", "task": "Failed to create a plan."}] 
+        try:
+            logging.info("Requesting plan from OpenAI...")
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": self.system_prompt},
+                    {"role": "user", "content": task_briefing},
+                ],
+                response_format={"type": "json_object"},
+            )
+            
+            response_content = response.choices[0].message.content
+            logging.info("Received raw plan: %s", response_content)
+            
+            # The response is a JSON string, so we need to parse it.
+            plan = json.loads(response_content)
+            # Sometimes the model returns a dictionary with a "plan" key
+            if isinstance(plan, dict) and "plan" in plan:
+                return plan["plan"]
+            return plan
+
+        except json.JSONDecodeError as e:
+            logging.error(f"Failed to decode JSON from OpenAI response: {e}")
+            logging.error(f"Raw response was: {response_content}")
+            return [{"step": 1, "assignee": "DefaultAgent", "task": "Failed to create a valid plan due to JSON error."}]
+        except Exception as e:
+            logging.error(f"An unexpected error occurred while getting the plan: {e}", exc_info=True)
+            return [{"step": 1, "assignee": "DefaultAgent", "task": "Failed to create a plan due to an unexpected error."}] 
