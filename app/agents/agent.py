@@ -50,11 +50,15 @@ class Agent:
     def __init__(
         self,
         name: str,
+        role: str,
+        goal: str,
         api_key: str,
         model: str = "o4-mini",
         max_iterations: int = 10,
     ):
         self.name = name
+        self.role = role
+        self.goal = goal
         self.model = model
         self.client = OpenAI(api_key=api_key)
         self.tools: Dict[str, Callable] = {}

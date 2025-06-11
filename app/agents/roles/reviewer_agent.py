@@ -4,8 +4,9 @@ from app.rag.retriever import KnowledgeRetriever
 
 class ReviewerAgent(Agent):
     """An agent specializing in strict Code Review."""
-    def __init__(self, **kwargs):
+    def __init__(self, name: str = "CodeReviewer", **kwargs):
         super().__init__(
+            name=name,
             role="Code Reviewer",
             goal=(
                 "Ensure that the provided code is of high quality, "
