@@ -5,6 +5,7 @@ from typing import Callable, Optional, List, Dict, Any
 import os
 import json
 import logging
+import re
 from openai import OpenAI, APIError
 from openai.types.chat import ChatCompletionMessage
 from dotenv import load_dotenv
@@ -58,6 +59,7 @@ class Agent:
         model: str = "o4-mini",
         max_iterations: int = 10,
         use_rag: bool = False,
+        rag_config: Optional[Dict[str, Any]] = None,
     ):
         self.name = name
         self.role = role
@@ -70,7 +72,9 @@ class Agent:
         self.max_iterations = max_iterations
         self.system_prompt = "Ты — универсальный AI-ассистент."
 
+        # RAG specific attributes
         self.use_rag = use_rag
+        self.rag_config = rag_config or {}
         self.retriever: Optional[KnowledgeRetriever] = None
         if self.use_rag:
             try:
@@ -95,13 +99,43 @@ class Agent:
             return None
         return self.tool_definitions
     
-    def _enrich_with_knowledge(self, query: str, top_k: int = 3) -> str:
+    def _create_rag_query(self, briefing: str) -> str:
+        """
+        Creates a focused query for RAG from the detailed briefing.
+        Extracts the current task and the last result from history.
+        """
+        task_match = re.search(r"\*\*YOUR CURRENT TASK \(Step .*\):\*\*\n\n\*\*Task:\*\* (.*)\n\*\*Description:\*\* (.*)", briefing)
+        history_match = re.search(r"\*\*EXECUTION HISTORY:\*\*\n(.*)", briefing, re.DOTALL)
+
+        if not task_match:
+            return briefing # Fallback to full briefing
+
+        task = task_match.group(1)
+        description = task_match.group(2)
+        
+        query_parts = [f"Task: {task}", f"Description: {description}"]
+
+        if history_match:
+            history_str = history_match.group(1).strip()
+            # Get the last entry from the history
+            last_entry = history_str.split("- **Step")[0].strip()
+            if last_entry:
+                query_parts.append(f"Context from previous step: {last_entry}")
+        
+        focused_query = "\n".join(query_parts)
+        logging.info(f"Created focused RAG query for {self.name}: '{focused_query}'")
+        return focused_query
+
+    def _enrich_with_knowledge(self, query: str) -> str:
         """Enriches a query with context from the knowledge base if RAG is enabled."""
         if not self.use_rag or not self.retriever:
             return ""
 
-        logging.info(f"Agent '{self.name}' is retrieving knowledge for query: '{query[:100]}...'")
-        retrieved_knowledge = self.retriever.retrieve(query=query, top_k=top_k)
+        top_k = self.rag_config.get("top_k", 3)
+        filters = self.rag_config.get("filters", None)
+
+        logging.info(f"Agent '{self.name}' is retrieving knowledge with top_k={top_k}, filters={filters}")
+        retrieved_knowledge = self.retriever.retrieve(query=query, top_k=top_k, filters=filters)
 
         if not retrieved_knowledge:
             logging.info("No specific internal standards found for this query.")
@@ -164,7 +198,10 @@ class Agent:
         """
         logging.info(f"Агент {self.name} получил задачу.")
         
-        knowledge_context = self._enrich_with_knowledge(query=briefing)
+        knowledge_context = ""
+        if self.use_rag:
+            focused_query = self._create_rag_query(briefing)
+            knowledge_context = self._enrich_with_knowledge(query=focused_query)
         
         # Системный промпт определяет "личность" агента, а брифинг - контекст задачи.
         # Контекст из базы знаний добавляется в начало системного промпта.

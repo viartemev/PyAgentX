@@ -58,13 +58,18 @@ class KnowledgeRetriever:
             logging.error(f"Failed to load knowledge base: {e}")
             raise
 
-    def retrieve(self, query: str, top_k: int = 3) -> List[Dict[str, Any]]:
+    def retrieve(
+        self, query: str, top_k: int = 3, filters: Dict[str, Any] = None
+    ) -> List[Dict[str, Any]]:
         """
-        Retrieves the top_k most relevant chunks for a given query.
+        Retrieves the top_k most relevant chunks for a given query,
+        with optional metadata filtering.
 
         Args:
             query (str): The search query.
             top_k (int): The number of top results to return.
+            filters (Dict[str, Any]): A dictionary for filtering based on metadata.
+                                      Example: {"tags": ["style-guide"]}
 
         Returns:
             List[Dict[str, Any]]: A list of the most relevant chunks.
@@ -80,26 +85,42 @@ class KnowledgeRetriever:
         # 2. Calculate cosine similarity
         similarities = cosine_similarity(query_embedding, self.embeddings).flatten()
 
-        # Ensure top_k is not greater than the number of available chunks
-        effective_top_k = min(top_k, len(self.chunks))
-
-        # 3. Get top_k indices
-        # We use argpartition which is faster than argsort for finding top_k
-        top_k_indices = np.argpartition(similarities, -effective_top_k)[-effective_top_k:]
+        # 3. Get a larger number of candidates to filter from
+        candidate_k = min(top_k * 5, len(self.chunks)) # Get more to filter
+        top_k_indices = np.argpartition(similarities, -candidate_k)[-candidate_k:]
         
-        # Sort these top_k indices by similarity score
-        sorted_top_k_indices = top_k_indices[
-            np.argsort(similarities[top_k_indices])
-        ][::-1]
+        # 4. Filter candidates based on metadata
+        filtered_indices = []
+        if filters and "tags" in filters:
+            required_tags = set(filters["tags"])
+            if required_tags: # Only filter if tags are specified
+                for idx in top_k_indices:
+                    chunk_tags = set(self.chunks[idx].get("metadata", {}).get("tags", []))
+                    if required_tags.issubset(chunk_tags):
+                        filtered_indices.append(idx)
+            else: # If tags filter is empty, don't filter
+                filtered_indices = list(top_k_indices)
+        else: # No filters
+            filtered_indices = list(top_k_indices)
+            
+        # 5. Sort the filtered indices by similarity score
+        sorted_indices = sorted(filtered_indices, key=lambda idx: similarities[idx], reverse=True)
+        
+        # 6. Get the final top_k results
+        final_indices = sorted_indices[:top_k]
 
-        # 4. Format results
+        # 7. Format results
         results = []
-        for idx in sorted_top_k_indices:
+        for idx in final_indices:
             result = {
                 "text": self.chunks[idx]["text"],
                 "source": self.chunks[idx]["source"],
+                "metadata": self.chunks[idx].get("metadata", {}),
                 "score": float(similarities[idx]),
             }
             results.append(result)
             
+        if not results:
+            logging.warning(f"No documents found for query '{query[:50]}...' with filters {filters}")
+
         return results 

@@ -37,7 +37,7 @@ def list_files_tool(input_data: Dict[str, Any]) -> str:
         input_data (Dict[str, Any]): Словарь, который может содержать ключ 'path'
                                       с путем к директории. По умолчанию - текущая.
     Returns:
-        Отформатированное дерево файлов и директорий в виде строки.
+        Отформатированное дерево файлов и директории в виде строки.
     """
     path = input_data.get("path", ".")
     if not os.path.isdir(path):
@@ -201,7 +201,7 @@ list_files_tool_def = {
     "type": "function",
     "function": {
         "name": "list_files_tool",
-        "description": "Рекурсивно выводит дерево файлов и директорий по указанному пути.",
+        "description": "Рекурсивно выводит дерево файлов и директории по указанному пути.",
         "parameters": {
             "type": "object",
             "properties": {

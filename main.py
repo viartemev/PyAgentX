@@ -43,19 +43,51 @@ def main():
         
         common_kwargs = {"api_key": api_key, "model": "o4-mini"}
 
-        coding_agent = CodingAgent(name="CodingAgent", use_rag=True, **common_kwargs)
+        coding_agent = CodingAgent(
+            name="CodingAgent", 
+            use_rag=True, 
+            rag_config={
+                "top_k": 3,
+                "filters": {"tags": ["code-example", "style-guide"]}
+            },
+            **common_kwargs
+        )
         coding_agent.add_tool(read_file_tool, read_file_tool_def)
         coding_agent.add_tool(edit_file_tool, edit_file_tool_def)
         coding_agent.add_tool(list_files_tool, list_files_tool_def)
 
-        testing_agent = TestingAgent(name="TestingAgent", use_rag=True, **common_kwargs)
+        testing_agent = TestingAgent(
+            name="TestingAgent", 
+            use_rag=True, 
+            rag_config={
+                "top_k": 2,
+                "filters": {"tags": ["testing-guide"]}
+            },
+            **common_kwargs
+        )
         testing_agent.add_tool(read_file_tool, read_file_tool_def)
         testing_agent.add_tool(run_tests_tool, run_tests_tool_def)
 
-        evaluator_agent = EvaluatorAgent(name="EvaluatorAgent", use_rag=True, **common_kwargs)
+        evaluator_agent = EvaluatorAgent(
+            name="EvaluatorAgent", 
+            use_rag=True, 
+            rag_config={
+                "top_k": 4,
+                "filters": {"tags": ["error-analysis", "debugging"]}
+            },
+            **common_kwargs
+        )
         evaluator_agent.add_tool(read_file_tool, read_file_tool_def)
 
-        reviewer_agent = ReviewerAgent(name="ReviewerAgent", **common_kwargs)
+        reviewer_agent = ReviewerAgent(
+            name="ReviewerAgent",
+            # This agent already has use_rag=True in its own __init__
+            rag_config={
+                "top_k": 5,
+                "filters": {"tags": ["style-guide"]}
+            },
+            **common_kwargs
+        )
         reviewer_agent.add_tool(read_file_tool, read_file_tool_def)
 
         workers = {
