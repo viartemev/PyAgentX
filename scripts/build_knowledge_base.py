@@ -6,12 +6,14 @@ import os
 import re
 from pathlib import Path
 from typing import List, Dict, Any
+import pickle
 
 import numpy as np
 import tiktoken
 from dotenv import load_dotenv
 from openai import OpenAI
 from unstructured.partition.md import partition_md
+from rank_bm25 import BM25Okapi
 
 # --- Configuration ---
 load_dotenv()
@@ -25,6 +27,7 @@ KNOWLEDGE_DIR = Path("knowledge")
 DB_DIR = Path("db")
 EMBEDDINGS_FILE = DB_DIR / "embeddings.npy"
 CHUNKS_FILE = DB_DIR / "chunks.json"
+BM25_INDEX_FILE = DB_DIR / "bm25_index.pkl"
 EMBEDDING_MODEL = "text-embedding-3-small"
 TEXT_CHUNK_MAX_TOKENS = 128
 
@@ -135,9 +138,20 @@ def main():
         logging.warning("Could not create any chunks from the documents. Exiting.")
         return
     chunk_texts = [chunk["text"] for chunk in all_chunks_with_metadata]
+
+    # Create and save vector embeddings
     embeddings = create_embeddings(chunk_texts)
     logging.info(f"Saving {len(embeddings)} embeddings to {EMBEDDINGS_FILE}")
     np.save(EMBEDDINGS_FILE, embeddings)
+
+    # Create and save BM25 index for keyword search
+    logging.info("Creating BM25 index...")
+    tokenized_corpus = [doc.split(" ") for doc in chunk_texts]
+    bm25 = BM25Okapi(tokenized_corpus)
+    with open(BM25_INDEX_FILE, "wb") as f:
+        pickle.dump(bm25, f)
+    logging.info(f"BM25 index saved to {BM25_INDEX_FILE}")
+
     logging.info(f"Saving {len(all_chunks_with_metadata)} chunks to {CHUNKS_FILE}")
     with open(CHUNKS_FILE, "w", encoding="utf-8") as f:
         json.dump(all_chunks_with_metadata, f, ensure_ascii=False, indent=4)
