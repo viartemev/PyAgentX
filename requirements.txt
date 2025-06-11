@@ -1,11 +1,13 @@
 fastapi
 uvicorn
-python-dotenv
-openai
+python-dotenv==1.0.1
+openai==1.35.13
 tiktoken
 unstructured
 markdown
-numpy
-scikit-learn
+numpy==1.26.4
+scikit-learn==1.5.1
 sentence-transformers
 torch
+pytest
+pytest-mock
