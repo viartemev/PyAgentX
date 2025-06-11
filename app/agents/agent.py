@@ -5,10 +5,17 @@ from typing import Callable, Optional, List, Dict, Any
 import os
 import json
 import logging
+import re
 from openai import OpenAI, APIError
 from openai.types.chat import ChatCompletionMessage
 from dotenv import load_dotenv
 import inspect
+
+from app.rag.retriever import KnowledgeRetriever
+from app.agents.tools import (
+    read_file_tool, read_file_tool_def,
+    list_files_tool, list_files_tool_def,
+)
 
 # Новый, улучшенный системный промпт, превращающий агента в программиста.
 SYSTEM_PROMPT = """
@@ -55,6 +62,8 @@ class Agent:
         api_key: str,
         model: str = "o4-mini",
         max_iterations: int = 10,
+        use_rag: bool = False,
+        rag_config: Optional[Dict[str, Any]] = None,
     ):
         self.name = name
         self.role = role
@@ -66,6 +75,25 @@ class Agent:
         self.conversation_history: List[Dict[str, Any]] = []
         self.max_iterations = max_iterations
         self.system_prompt = "Ты — универсальный AI-ассистент."
+
+        # Add default tools
+        self.add_tool(read_file_tool, read_file_tool_def)
+        self.add_tool(list_files_tool, list_files_tool_def)
+        
+        # RAG specific attributes
+        self.use_rag = use_rag
+        self.rag_config = rag_config or {}
+        self.retriever: Optional[KnowledgeRetriever] = None
+        if self.use_rag:
+            try:
+                self.retriever = KnowledgeRetriever()
+            except FileNotFoundError as e:
+                logging.warning(
+                    f"Agent '{self.name}' was configured to use RAG, "
+                    f"but the knowledge base is not found. RAG will be disabled. "
+                    f"Error: {e}"
+                )
+                self.use_rag = False
 
     def add_tool(self, tool_func: Callable, tool_definition: Dict[str, Any]):
         """Добавляет инструмент и его определение."""
@@ -79,6 +107,58 @@ class Agent:
             return None
         return self.tool_definitions
     
+    def _create_rag_query(self, briefing: str) -> str:
+        """
+        Creates a focused query for RAG from the detailed briefing.
+        Extracts the current task and the last result from history.
+        """
+        task_match = re.search(r"\*\*YOUR CURRENT TASK \(Step .*\):\*\*\n\n\*\*Task:\*\* (.*)\n\*\*Description:\*\* (.*)", briefing)
+        history_match = re.search(r"\*\*EXECUTION HISTORY:\*\*\n(.*)", briefing, re.DOTALL)
+
+        if not task_match:
+            return briefing # Fallback to full briefing
+
+        task = task_match.group(1)
+        description = task_match.group(2)
+        
+        query_parts = [f"Task: {task}", f"Description: {description}"]
+
+        if history_match:
+            history_str = history_match.group(1).strip()
+            # Get the last entry from the history
+            last_entry = history_str.split("- **Step")[0].strip()
+            if last_entry:
+                query_parts.append(f"Context from previous step: {last_entry}")
+        
+        focused_query = "\n".join(query_parts)
+        logging.info(f"Created focused RAG query for {self.name}: '{focused_query}'")
+        return focused_query
+
+    def _enrich_with_knowledge(self, query: str) -> str:
+        """Enriches a query with context from the knowledge base if RAG is enabled."""
+        if not self.use_rag or not self.retriever:
+            return ""
+
+        top_k = self.rag_config.get("top_k", 3)
+        filters = self.rag_config.get("filters", None)
+
+        logging.info(f"Agent '{self.name}' is retrieving knowledge with top_k={top_k}, filters={filters}")
+        retrieved_knowledge = self.retriever.retrieve(query=query, top_k=top_k, filters=filters)
+
+        if not retrieved_knowledge:
+            logging.info("No specific internal standards found for this query.")
+            return ""
+
+        formatted_knowledge = "\n\n---\n\n".join(
+            [f"Source: {chunk['source']}\n\n{chunk['text']}" for chunk in retrieved_knowledge]
+        )
+        knowledge_context = (
+            "Before you begin, consult these internal standards and best practices:"
+            f"\n\n--- RELEVANT KNOWLEDGE ---\n{formatted_knowledge}\n--------------------------\n"
+        )
+        logging.info(f"Knowledge context added for agent '{self.name}'.")
+        return knowledge_context
+
     def _execute_tool(self, tool_name: str, tool_args: Dict[str, Any]) -> Any:
         """Выполняет указанный инструмент с аргументами."""
         if tool_name in self.tools:
@@ -126,9 +206,17 @@ class Agent:
         """
         logging.info(f"Агент {self.name} получил задачу.")
         
+        knowledge_context = ""
+        if self.use_rag:
+            focused_query = self._create_rag_query(briefing)
+            knowledge_context = self._enrich_with_knowledge(query=focused_query)
+        
         # Системный промпт определяет "личность" агента, а брифинг - контекст задачи.
+        # Контекст из базы знаний добавляется в начало системного промпта.
+        final_system_prompt = f"{knowledge_context}\n{self.system_prompt}"
+
         self.conversation_history = [
-            {"role": "system", "content": self.system_prompt},
+            {"role": "system", "content": final_system_prompt},
             {"role": "user", "content": briefing}
         ]
         

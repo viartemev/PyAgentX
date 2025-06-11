@@ -5,7 +5,7 @@ import logging
 import json
 from typing import Dict, Any, List, Tuple, Optional
 from app.agents.agent import Agent
-from app.orchestration.decomposer import TaskDecomposer
+from app.agents.roles.task_decomposer import TaskDecomposer
 
 class Orchestrator:
     """
@@ -178,7 +178,7 @@ Analyze all the provided information, especially the results of previous steps, 
     def _get_plan(self, goal: str) -> List[Dict[str, Any]]:
         """Gets the plan from the TaskDecomposer."""
         logging.info("Getting plan from TaskDecomposer...")
-        plan = self.task_decomposer.generate_plan(goal)
+        plan = self.task_decomposer.get_plan(goal)
         if not plan:
             logging.error("Failed to create a plan. Orchestrator is stopping.")
             return []

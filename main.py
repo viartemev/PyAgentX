@@ -1,95 +1,69 @@
 import logging
 import os
+import typer
 from dotenv import load_dotenv
-from app.agents.agent import Agent
-from app.agents.tools import (
-    read_file_tool, read_file_tool_def,
-    edit_file_tool, edit_file_tool_def,
-    list_files_tool, list_files_tool_def,
-    run_tests_tool, run_tests_tool_def,
-)
-from app.orchestration.decomposer import TaskDecomposer
+from typing_extensions import Annotated
+
+from app.factory.agent_factory import create_agent_team
 from app.orchestration.orchestrator import Orchestrator
-from app.agents.roles import (
-    CodingAgent,
-    ReviewerAgent,
-    TestingAgent,
-    EvaluatorAgent,
-)
 
-def main():
-    """Main function to run the AI agent."""
-    load_dotenv()
+# Create a typer app
+app = typer.Typer()
 
-    # Setup logging
+def setup_logging():
+    """Configures the logging for the application."""
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s",
         handlers=[
-            logging.FileHandler("agent_activity.log"),
+            logging.FileHandler("agent_activity.log", mode='w'),
             logging.StreamHandler()
         ]
     )
 
+@app.command()
+def run(
+    goal: Annotated[str, typer.Argument(help="The high-level goal for the agent team to accomplish.")],
+    config: Annotated[str, typer.Option(help="Path to the main configuration file.")] = "configs/config.yaml"
+):
+    """
+    Runs the multi-agent system to accomplish a given goal.
+    """
+    load_dotenv()
+    setup_logging()
+    
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         logging.error("OPENAI_API_KEY not found in .env file.")
-        print("Error: Please make sure your .env file contains OPENAI_API_KEY.")
-        return
+        typer.echo("Error: Please make sure your .env file contains OPENAI_API_KEY.")
+        raise typer.Exit(code=1)
 
     try:
-        # 1. Initialize the agent team
-        logging.info("Initializing agent team...")
-        
-        common_kwargs = {"api_key": api_key, "model": "o4-mini"}
+        # Create the agent team using the factory
+        task_decomposer, worker_agents = create_agent_team(config)
 
-        coding_agent = CodingAgent(name="CodingAgent", **common_kwargs)
-        coding_agent.add_tool(read_file_tool, read_file_tool_def)
-        coding_agent.add_tool(edit_file_tool, edit_file_tool_def)
-        coding_agent.add_tool(list_files_tool, list_files_tool_def)
-
-        testing_agent = TestingAgent(name="TestingAgent", **common_kwargs)
-        testing_agent.add_tool(read_file_tool, read_file_tool_def)
-        testing_agent.add_tool(run_tests_tool, run_tests_tool_def)
-
-        evaluator_agent = EvaluatorAgent(name="EvaluatorAgent", **common_kwargs)
-        evaluator_agent.add_tool(read_file_tool, read_file_tool_def)
-
-        reviewer_agent = ReviewerAgent(name="ReviewerAgent", **common_kwargs)
-        reviewer_agent.add_tool(read_file_tool, read_file_tool_def)
-
-        workers = {
-            "CodingAgent": coding_agent,
-            "TestingAgent": testing_agent,
-            "EvaluatorAgent": evaluator_agent,
-            "ReviewerAgent": reviewer_agent,
-        }
-        
-        default_agent = Agent(name="DefaultAgent", **common_kwargs)
-        default_agent.add_tool(list_files_tool, list_files_tool_def)
-        default_agent.add_tool(read_file_tool, read_file_tool_def)
-        workers["DefaultAgent"] = default_agent
-
-        # Planner
-        planner = TaskDecomposer(api_key=api_key, model="o4-mini")
-        
-        # The orchestrator now manages the team
+        # Initialize and run the orchestrator
         orchestrator = Orchestrator(
-            task_decomposer=planner,
-            worker_agents=workers
+            task_decomposer=task_decomposer,
+            worker_agents=worker_agents
         )
-
-        # 2. Request the goal and run the orchestrator
-        goal = input("Please enter your high-level goal: ")
-        if not goal:
-            print("Goal cannot be empty.")
-            return
-
+        
+        typer.echo(f"🚀 Starting agent team to accomplish goal: {goal}")
         orchestrator.run(goal)
+        typer.echo("✅ Goal accomplished successfully!")
 
+    except FileNotFoundError as e:
+        logging.error(f"Configuration file not found: {e}")
+        typer.echo(f"Error: Configuration file not found at '{config}'. Please check the path.")
+        raise typer.Exit(code=1)
+    except KeyboardInterrupt:
+        typer.echo("\nOperation cancelled by user. Exiting...")
+        logging.info("User cancelled the operation.")
+        raise typer.Exit()
     except Exception as e:
         logging.critical("A critical error occurred: %s", e, exc_info=True)
-        print(f"\nCritical Error: {e}")
+        typer.echo(f"\n🚨 Critical Error: {e}")
+        raise typer.Exit(code=1)
 
 if __name__ == "__main__":
-    main() 
+    app() 

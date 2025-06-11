@@ -1,0 +1,6 @@
+# Configuration for DefaultAgent
+
+name: "DefaultAgent"
+role: "General Assistant"
+goal: "Perform basic tasks like listing files when no other agent is assigned."
+use_rag: false 

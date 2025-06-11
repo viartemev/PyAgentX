@@ -1,44 +1,44 @@
-# Принципы Обработки Ошибок
+# Error Handling Principles
 
-## 1. Предпочитайте специфичные исключения
+## 1. Prefer Specific Exceptions
 
-Всегда перехватывайте наиболее специфичный тип исключения. Избегайте использования `except Exception:` без крайней необходимости.
+Always catch the most specific exception type possible. Avoid using `except Exception:` unless absolutely necessary.
 
-**Плохо:**
+**Bad:**
 ```python
 try:
-    # какой-то код
+    # some code
 except Exception as e:
-    log.error("Произошла ошибка")
+    log.error("An error occurred")
 ```
 
-**Хорошо:**
+**Good:**
 ```python
 try:
-    # какой-то код
+    # some code
 except FileNotFoundError as e:
-    log.error(f"Файл не найден: {e}")
+    log.error(f"File not found: {e}")
 except (KeyError, ValueError) as e:
-    log.warning(f"Ошибка данных: {e}")
+    log.warning(f"Data error: {e}")
 ```
 
-## 2. Используйте кастомные исключения
+## 2. Use Custom Exceptions
 
-Для ошибок, специфичных для доменной логики вашего приложения, создавайте собственные классы исключений. Это делает код более читаемым и позволяет вызывающему коду точечно обрабатывать конкретные сбои.
+For errors specific to your application's domain logic, create your own exception classes. This makes the code more readable and allows calling code to handle specific failures precisely.
 
 ```python
 class InsufficientBalanceError(Exception):
-    """Исключение, возникающее при недостаточном балансе."""
+    """Exception raised when the account balance is too low."""
     pass
 
 def withdraw(amount):
     if amount > current_balance:
-        raise InsufficientBalanceError("Недостаточно средств на счете")
+        raise InsufficientBalanceError("Insufficient funds in the account")
 ```
 
-## 3. Логируйте ошибки правильно
+## 3. Log Errors Correctly
 
-При перехвате исключения обязательно логируйте полную информацию, включая трассировку стека, чтобы упростить отладку.
+When catching an exception, be sure to log the full information, including the stack trace, to simplify debugging.
 
 ```python
 import logging
@@ -46,4 +46,4 @@ import logging
 try:
     # ...
 except Exception as e:
-    logging.error("Произошла непредвиденная ошибка", exc_info=True) 
+    logging.error("An unexpected error occurred", exc_info=True) 

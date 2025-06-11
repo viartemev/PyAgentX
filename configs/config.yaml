@@ -1,0 +1,35 @@
+# Main application configuration
+
+# Default model for all agents, can be overridden in specific agent configs
+default_model: "o4-mini"
+
+# API key for OpenAI, will be loaded from environment variables
+# This is just a placeholder; the actual key is loaded from .env in the code
+api_key: "${OPENAI_API_KEY}"
+
+# Agent configurations
+# The keys here (e.g., 'CodingAgent') should match the names used in main.py
+agents:
+  CodingAgent:
+    _target_: app.agents.roles.coding_agent.CodingAgent
+    config_path: "configs/agent/coding_agent.yaml"
+  
+  TestingAgent:
+    _target_: app.agents.roles.testing_agent.TestingAgent
+    config_path: "configs/agent/testing_agent.yaml"
+
+  ReviewerAgent:
+    _target_: app.agents.roles.reviewer_agent.ReviewerAgent
+    config_path: "configs/agent/reviewer_agent.yaml"
+
+  EvaluatorAgent:
+    _target_: app.agents.roles.evaluator_agent.EvaluatorAgent
+    config_path: "configs/agent/evaluator_agent.yaml"
+
+  TaskDecomposer:
+    _target_: app.agents.roles.task_decomposer.TaskDecomposer
+    config_path: "configs/agent/task_decomposer.yaml" # We'll create this one too
+
+  DefaultAgent:
+    _target_: app.agents.agent.Agent
+    config_path: "configs/agent/default_agent.yaml" 

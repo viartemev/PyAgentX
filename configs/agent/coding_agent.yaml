@@ -1,0 +1,12 @@
+# Configuration for CodingAgent
+
+name: "CodingAgent"
+role: "Software Engineer"
+goal: "Write, modify, and fix code according to the given task."
+use_rag: true
+
+# RAG specific settings
+rag_config:
+  top_k: 3
+  filters:
+    tags: ["code-example", "style-guide"] 
