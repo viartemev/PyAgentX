@@ -1,0 +1,77 @@
+[
+    {
+        "text": "Руководство по Написанию Тестов\n1. Структура теста: Arrange-Act-Assert (AAA)\nВсе тесты должны следовать паттерну AAA для ясности и читаемости. Arrange (Подготовка): Подготовьте все необходимые данные и моки. Act (Действие): Вызовите тестируемую функцию или метод.",
+        "source": "testing_guidelines.md",
+        "chunk_id": 0
+    },
+    {
+        "text": "Assert (Проверка): Проверьте, что результат соответствует ожиданиям. ```python def test_user_creation(): # Arrange user_data = {\"username\": \"test\", \"email\": \"test@example.com\"} mock_db = MagicMock()\n# Act\ncreated_user = create_user(db=mock_db, data=user_data)",
+        "source": "testing_guidelines.md",
+        "chunk_id": 1
+    },
+    {
+        "text": "# Assert\nassert created_user.username == user_data[\"username\"]\nmock_db.add.assert_called_once()\n```\n2. Именование тестов\nИмена тестовых функций должны быть описательными и начинаться с test_. Следуйте формату test_<что_тестируем>_<при_каких_условиях>_<ожидаемый_результат>. Пример: test_add_items_with_negative_quantity_raises_error()\n3.",
+        "source": "testing_guidelines.md",
+        "chunk_id": 2
+    },
+    {
+        "text": "Используйте pytest.raises для проверки исключений\nДля проверки того, что код корректно выбрасывает исключения, используйте контекстный менеджер pytest.raises. ```python import pytest\ndef test_divide_by_zero_raises_exception(): with pytest.raises(ZeroDivisionError): divide(10, 0) ```",
+        "source": "testing_guidelines.md",
+        "chunk_id": 3
+    },
+    {
+        "text": "Принципы Обработки Ошибок\n1. Предпочитайте специфичные исключения\nВсегда перехватывайте наиболее специфичный тип исключения. Избегайте использования except Exception: без крайней необходимости.",
+        "source": "error_handling.md",
+        "chunk_id": 0
+    },
+    {
+        "text": "Плохо: python try: # какой-то код except Exception as e: log.error(\"Произошла ошибка\")\nХорошо: python try: # какой-то код except FileNotFoundError as e: log.error(f\"Файл не найден: {e}\") except (KeyError, ValueError) as e: log.warning(f\"Ошибка данных: {e}\")\n2.",
+        "source": "error_handling.md",
+        "chunk_id": 1
+    },
+    {
+        "text": "Используйте кастомные исключения\nДля ошибок, специфичных для доменной логики вашего приложения, создавайте собственные классы исключений. Это делает код более читаемым и позволяет вызывающему коду точечно обрабатывать конкретные сбои.",
+        "source": "error_handling.md",
+        "chunk_id": 2
+    },
+    {
+        "text": "```python class InsufficientBalanceError(Exception): \"\"\"Исключение, возникающее при недостаточном балансе.\"\"\" pass\ndef withdraw(amount): if amount > current_balance: raise InsufficientBalanceError(\"Недостаточно средств на счете\") ```\n3. Логируйте ошибки правильно\nПри перехвате исключения обязательно логируйте полную информацию, включая трассировку стека, чтобы упростить отладку.",
+        "source": "error_handling.md",
+        "chunk_id": 3
+    },
+    {
+        "text": "```python import logging\ntry: # ... except Exception as e: logging.error(\"Произошла непредвиденная ошибка\", exc_info=True)",
+        "source": "error_handling.md",
+        "chunk_id": 4
+    },
+    {
+        "text": "API Design Principles\nРесурсы: Используйте существительные во множественном числе для именования эндпоинтов (например, /users, /products). HTTP-методы: Используйте правильные HTTP-глаголы для действий:\nGET для получения данных. POST для создания новых ресурсов. PUT / PATCH для обновления. DELETE для удаления.",
+        "source": "api_design.md",
+        "chunk_id": 0
+    },
+    {
+        "text": "Версионирование: Включайте версию API в URL (например, /api/v1/users).",
+        "source": "api_design.md",
+        "chunk_id": 1
+    },
+    {
+        "text": "Python Style Guide\nИменование: Используйте snake_case для переменных и функций. Имена классов должны использовать CamelCase. Константы должны быть в UPPER_SNAKE_CASE. Длина строки: Максимальная длина строки - 99 символов. Докстринги: Все публичные модули, функции, классы и методы должны иметь докстринги в стиле Google.",
+        "source": "python_style_guide.md",
+        "chunk_id": 0
+    },
+    {
+        "text": "Импорты: Группируйте импорты в следующем порядке: стандартная библиотека, сторонние библиотеки, локальные приложения. Форматирование строк\nf-строки: Всегда предпочитайте f-строки для форматирования вместо str.format() или оператора %.",
+        "source": "python_style_guide.md",
+        "chunk_id": 1
+    },
+    {
+        "text": "Хорошо: user_info = f\"Пользователь {user.name} с ID {user.id}\"\nПлохо: user_info = \"Пользователь {} с ID {}\".format(user.name, user.id)\nList Comprehensions\nПростота: Используйте list comprehensions для создания списков из существующих итерируемых объектов, но только если логика остается простой и читаемой.",
+        "source": "python_style_guide.md",
+        "chunk_id": 2
+    },
+    {
+        "text": "Если требуется сложная логика или несколько вложенных циклов, используйте обычный цикл for. Хорошо: squares = [x*x for x in range(10)]\nИзбегайте (сложно для чтения): complex_list = [x + y for x in range(10) for y in range(5) if x % 2 == 0 if y % 3 == 0]",
+        "source": "python_style_guide.md",
+        "chunk_id": 3
+    }
+]
