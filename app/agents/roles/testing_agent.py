@@ -18,8 +18,4 @@ class TestingAgent(Agent):
         self.add_tool(read_file_tool, read_file_tool_def)
         self.add_tool(run_tests_tool, run_tests_tool_def)
 
-        self.system_prompt = """
-You are TestingAgent, an automated test-running robot.
-Your sole task is to call the `run_tests_tool` with the correct path to the tests.
-After receiving the result, you must briefly and accurately report on the success or failure.
-""" 
+        # The system_prompt is now handled by the base Agent class. 

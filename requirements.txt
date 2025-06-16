@@ -16,3 +16,9 @@ httpx==0.27.0
 rank-bm25
 pyyaml
 typer[all]
+pydantic
+python-multipart
+duckduckgo-search
+guardrails-ai
+deepeval
+semchunk

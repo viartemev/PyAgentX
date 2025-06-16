@@ -1,196 +1,98 @@
 """
-Orchestrator module that manages the execution of a task plan.
+This module defines the Orchestrator, the central brain of the multi-agent team.
 """
-import logging
+import os
 import json
-from typing import Dict, Any, List, Tuple, Optional
-from app.agents.agent import Agent
-from app.agents.roles.task_decomposer import TaskDecomposer
+import logging
+from typing import Dict, Any
+from openai import OpenAI
+from app.factory.agent_factory import AgentFactory
+from app.agents.roles.standard_roles import ALL_ROLES
+
+ORCHESTRATOR_PROMPT_TEMPLATE = """
+You are a master orchestrator of a team of AI agents.
+Your job is to analyze the user's request and choose the best specialized agent to handle the task.
+
+Here is the user's request:
+"{user_query}"
+
+And here is the team of specialists available to you:
+{agents_description}
+
+Based on the user's request, you must choose the single most appropriate agent to delegate the task to.
+Respond with a JSON object containing the name of the chosen agent.
+
+Example:
+{{
+  "agent_name": "FileSystemExpert"
+}}
+"""
 
 class Orchestrator:
     """
-    The Orchestrator manages the entire process: from goal decomposition to task execution by agents.
+    Analyzes user requests and routes them to the appropriate specialized agent.
     """
-    def __init__(self, task_decomposer: TaskDecomposer, worker_agents: Dict[str, Agent]):
-        self.task_decomposer = task_decomposer
-        self.worker_agents = worker_agents
-        self.execution_history: List[Dict[str, Any]] = []
+    def __init__(self, api_key: str, model: str = "gpt-4o-mini"):
+        self.client = OpenAI(api_key=api_key)
+        self.model = model
+        self.agent_factory = AgentFactory()
+        self.api_key = api_key
 
-    def _get_briefing(self, current_task: Dict[str, Any], plan: List[Dict[str, Any]], goal: str) -> str:
-        """Creates a full context (briefing) for an agent before task execution."""
-        
-        history_log = ""
-        if not self.execution_history:
-            history_log = "This is the first step, there are no previous results.\n"
-        else:
-            history_log += "**Execution History:**\n"
-            for record in self.execution_history:
-                history_log += f"- **Step {record['step']} ({record['assignee']})**: {record['task']}\n"
-                history_log += f"  - **Result**: {record['result']}\n"
+    def _get_agents_description(self) -> str:
+        """Creates a formatted string describing the available agents."""
+        descriptions = []
+        for name, config in ALL_ROLES.items():
+            descriptions.append(f"- Agent: {name}\n  - Role: {config['role']}\n  - Best for: {config['goal']}")
+        return "\n".join(descriptions)
 
-        plan_log = ""
-        for step in plan:
-            marker = "-->" if step['step'] == current_task['step'] else "   "
-            plan_log += f"{marker} Step {step['step']}: {step['task']} (Assignee: {step['assignee']})\n"
+    def _choose_agent(self, user_query: str) -> str:
+        """
+        Uses an LLM to choose the best agent for a given query.
+        """
+        agents_description = self._get_agents_description()
+        prompt = ORCHESTRATOR_PROMPT_TEMPLATE.format(
+            user_query=user_query,
+            agents_description=agents_description
+        )
 
-        briefing = f"""
-TASK CONTEXT
----------------------------------
-**Global Goal:** {goal}
-
-**ENTIRE TASK PLAN:**
-{plan_log}
-**EXECUTION HISTORY:**
-{history_log}
----------------------------------
-**YOUR CURRENT TASK (Step {current_task['step']}):**
-
-**Task:** {current_task['task']}
-**Description:** {current_task['description']}
-
-Analyze all the provided information, especially the results of previous steps, and execute your task.
-"""
-        return briefing
-
-    def _perform_code_review(self, task: Dict[str, Any], plan: List[Dict[str, Any]], goal: str) -> Tuple[bool, Optional[str]]:
-        """Performs the Code Review step."""
-        logging.info("--- Starting Code Review ---")
-        reviewer_agent = self.worker_agents.get("ReviewerAgent")
-        if not reviewer_agent:
-            logging.error("ReviewerAgent not found!")
-            return False, "ReviewerAgent was not initialized."
-
-        briefing = self._get_briefing(task, plan, goal)
-        review_result = reviewer_agent.execute_task(briefing)
-
-        logging.info(f"Code Review Result: {review_result}")
-
-        if "LGTM" in review_result.upper():
-            logging.info("--- Code Review Passed Successfully ---")
-            return True, None
-        else:
-            logging.warning("--- Code Review identified issues ---")
-            return False, review_result
-
-    def run(self, goal: str):
-        self.execution_history = []
-        plan = self._get_plan(goal)
-        current_step_index = 0
-
-        while current_step_index < len(plan):
-            task = plan[current_step_index]
-            logging.info(f"--- Executing Step {task['step']}: {task['task']} ---")
-
-            if task.get("assignee") == "ReviewerAgent":
-                review_passed, suggestions = self._perform_code_review(task, plan, goal)
-                
-                history_record = {
-                    "step": task['step'],
-                    "task": task['task'],
-                    "assignee": task['assignee'],
-                }
-
-                if review_passed:
-                    history_record["result"] = "Success (LGTM)."
-                    self.execution_history.append(history_record)
-                    current_step_index += 1
-                    continue
-                else:
-                    history_record["result"] = f"Failed. Feedback: {suggestions}"
-                    self.execution_history.append(history_record)
-                    
-                    logging.warning("Review failed. Creating a task for correction...")
-                    new_task_description = (
-                        "The reviewer agent found issues in the code you wrote. "
-                        f"Here are the comments: '{suggestions}'. "
-                        "Your task is to fix the code according to these recommendations."
-                    )
-                    
-                    new_task = {
-                        "step": float(task["step"]) + 0.1,
-                        "assignee": "CodingAgent",
-                        "task": "Fix code based on Code Review feedback.",
-                        "description": new_task_description,
-                    }
-                    
-                    plan.insert(current_step_index + 1, new_task)
-                    logging.info(f"A new task has been added to the plan: {new_task}")
-                    
-                    current_step_index += 1
-                    continue
-
-            assignee_name = task.get("assignee", "DefaultAgent")
-            agent = self.worker_agents.get(assignee_name)
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"}
+            )
+            choice = json.loads(response.choices[0].message.content or "{}")
+            agent_name = choice.get("agent_name")
             
-            if not agent:
-                logging.error(f"Agent {assignee_name} not found! Skipping step.")
-                result = f"Skipped (agent '{assignee_name}' not found)."
+            if agent_name in ALL_ROLES:
+                logging.info(f"Orchestrator chose agent: {agent_name}")
+                return agent_name
             else:
-                briefing = self._get_briefing(task, plan, goal)
-                result = agent.execute_task(briefing)
+                logging.warning(f"Orchestrator chose an unknown agent: {agent_name}. Defaulting.")
+                # Default to a generalist or the first available agent as a fallback
+                return next(iter(ALL_ROLES))
 
-            logging.info(f"Result of step {task['step']}: {result}")
+        except Exception as e:
+            logging.error(f"Error in choosing agent: {e}", exc_info=True)
+            return next(iter(ALL_ROLES)) # Fallback to default
 
-            if "reached iteration limit" in result:
-                logging.critical(f"Agent {assignee_name} failed to complete task {task['step']} and reached the iteration limit. Execution aborted.")
-                print(f"CRITICAL ERROR: Agent {assignee_name} failed the task. Check agent_activity.log for details.")
-                return
-            
-            history_record = {
-                "step": task['step'],
-                "task": task['task'],
-                "assignee": task.get("assignee", "DefaultAgent"),
-                "result": result
-            }
-            self.execution_history.append(history_record)
+    def run(self, user_query: str) -> str:
+        """
+        Runs the orchestration process: choose an agent and execute the task.
+        """
+        # 1. Choose the right agent for the job
+        chosen_agent_name = self._choose_agent(user_query)
+        agent_config = ALL_ROLES[chosen_agent_name]
 
-            if agent and agent.name == "TestingAgent" and "FAIL" in result.upper():
-                logging.error("Tests failed! Initiating fix process.")
-                evaluator_agent = self.worker_agents.get("EvaluatorAgent")
-                if not evaluator_agent:
-                    logging.error("EvaluatorAgent not found, cannot analyze the error.")
-                    current_step_index += 1
-                    continue
+        # 2. Create the agent using the factory
+        specialist_agent = self.agent_factory.create_agent(
+            agent_config=agent_config,
+            api_key=self.api_key,
+            model=self.model
+        )
 
-                evaluator_briefing = (
-                    "The tests failed. Analyze the following log and formulate a task to fix it.\n\n"
-                    "ERROR LOG:\n"
-                    f"{result}"
-                )
-                
-                fix_task_description = evaluator_agent.execute_task(evaluator_briefing)
-                logging.info(f"EvaluatorAgent suggested the following task: {fix_task_description}")
-
-                new_task = {
-                    "step": float(task["step"]) + 0.1,
-                    "assignee": "CodingAgent",
-                    "task": "Fix code based on failed tests.",
-                    "description": fix_task_description,
-                }
-                
-                plan.insert(current_step_index + 1, new_task)
-                logging.info(f"A new fix task has been added to the plan: {new_task}")
-
-            current_step_index += 1
-
-        logging.info("All tasks completed. Goal achieved.")
-
-    def _get_plan(self, goal: str) -> List[Dict[str, Any]]:
-        """Gets the plan from the TaskDecomposer."""
-        logging.info("Getting plan from TaskDecomposer...")
-        plan = self.task_decomposer.get_plan(goal)
-        if not plan:
-            logging.error("Failed to create a plan. Orchestrator is stopping.")
-            return []
+        # 3. Execute the task with the chosen agent
+        logging.info(f"Delegating task to {specialist_agent.name}...")
+        final_response = specialist_agent.execute_task(user_query)
         
-        logging.info("Plan successfully received.")
-        print("\nThe following plan has been created:")
-        for step in plan:
-            print(f"- Step {step['step']}: {step['task']} (Assignee: {step['assignee']})")
-        return plan
-
-    # def _create_evaluator_briefing(self, failed_test_result: str, last_briefing: str) -> str:
-    #     """Создает системный промпт для EvaluatorAgent."""
-    #     return f"""
-    # ... (здесь был промпт)
-    # """ 
+        return final_response
