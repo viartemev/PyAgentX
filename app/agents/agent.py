@@ -19,7 +19,7 @@ from app.agents.tools import (
 from app.agents.web_search_tool import web_search_tool, web_search_tool_def
 from app.agents.memory_tool import save_memory_tool, save_memory_tool_def
 from app.memory.memory_manager import MemoryManager
-from app.safety.guardrails import GuardrailManager
+from app.safety.custom_guardrails import CustomGuardrailManager
 
 class ToolExecutionError(Exception):
     """Custom exception for errors during tool execution."""
@@ -107,9 +107,8 @@ class Agent:
 
         # Initialize Memory Manager
         self.memory_manager = MemoryManager()
-
-        # Initialize Guardrail Manager
-        self.guardrail_manager = GuardrailManager()
+        # Initialize Guardrails
+        self.guardrail_manager = CustomGuardrailManager(api_key=api_key)
 
         # Add default tools
         self.add_tool(read_file_tool, read_file_tool_def)
@@ -307,18 +306,16 @@ class Agent:
                 else:
                     raise ValueError("Missing 'thought' in response.")
 
-                if "answer" in parsed_response:
+                if parsed_response.get("answer"):
                     final_answer = parsed_response["answer"]
-                    logging.info(f"✅ Agent {self.name} finished task with answer: {final_answer}")
-                    
-                    # Validate the final answer before returning
-                    validated_answer = self.guardrail_manager.validate_response(final_answer)
+                    # Validate final answer with guardrails before returning
+                    validated_answer = self.guardrail_manager.validate_and_format_response(final_answer)
+                    logging.info(f"✅ Agent {self.name} finished task with answer: {validated_answer}")
                     return validated_answer
 
-                if "action" in parsed_response:
-                    action = parsed_response["action"]
-                    tool_name = action.get("name")
-                    tool_input = action.get("input", {})
+                elif parsed_response.get("tool"):
+                    tool_name = parsed_response["tool"]["name"]
+                    tool_input = parsed_response["tool"]["input"]
 
                     if not tool_name:
                         raise ValueError("Missing 'name' in action.")
@@ -361,7 +358,7 @@ class Agent:
         warning_message = f"Agent {self.name} reached max iterations ({self.max_iterations}) without a final answer."
         logging.warning(warning_message)
         # Validate the warning message as well, in case it contains sensitive info (less likely but good practice)
-        return self.guardrail_manager.validate_response(warning_message)
+        return warning_message
 
     def run(self) -> None:
         """Запускает основной цикл общения с агентом в интерактивном режиме."""
