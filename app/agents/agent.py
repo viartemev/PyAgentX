@@ -21,6 +21,10 @@ from app.agents.memory_tool import save_memory_tool, save_memory_tool_def
 from app.memory.memory_manager import MemoryManager
 from app.safety.guardrails import GuardrailManager
 
+class ToolExecutionError(Exception):
+    """Custom exception for errors during tool execution."""
+    pass
+
 # Новый системный промпт, основанный на ReAct (Reason + Act)
 REACT_SYSTEM_PROMPT = """
 You are a smart, autonomous AI agent. Your name is {agent_name}, and your role is {agent_role}.
@@ -210,10 +214,11 @@ class Agent:
                 return result
             except Exception as e:
                 logging.error("Ошибка при выполнении инструмента '%s': %s", tool_name, e, exc_info=True)
-                return f"Ошибка: Не удалось выполнить инструмент '{tool_name}'. Причина: {e}"
+                # Выбрасываем кастомное исключение, чтобы его можно было поймать выше
+                raise ToolExecutionError(f"Error: Failed to execute tool '{tool_name}'. Reason: {e}")
         else:
             logging.warning("Попытка вызова неизвестного инструмента: '%s'", tool_name)
-            return f"Ошибка: Инструмент '{tool_name}' не найден."
+            raise ToolExecutionError(f"Error: Tool '{tool_name}' not found.")
 
     def _get_tools_description(self) -> str:
         """Generates a description of available tools for the system prompt."""
@@ -326,6 +331,19 @@ class Agent:
                     self.conversation_history.append({"role": "user", "content": observation})
                 else:
                     raise ValueError("Response must contain 'action' or 'answer'.")
+
+            except ToolExecutionError as e:
+                error_message = f"A tool failed to execute: {e}"
+                logging.error(error_message)
+                # Запускаем цикл рефлексии
+                reflection_prompt = (
+                    f"CRITICAL_ERROR: Your last action failed with the following error: '{e}'.\n"
+                    "You MUST analyze this error and the execution history to understand what went wrong.\n"
+                    "Then, devise a new plan. Either try a different approach, use a different tool, or modify the input to the tool.\n"
+                    "Your next 'thought' MUST explain how you are correcting your course of action."
+                )
+                self.conversation_history.append({"role": "user", "content": reflection_prompt})
+                continue # Продолжаем цикл, чтобы агент мог ответить на сообщение об ошибке
 
             except (json.JSONDecodeError, ValueError) as e:
                 error_message = f"Error parsing model response: {e}. Response was: '{model_response_str}'"
