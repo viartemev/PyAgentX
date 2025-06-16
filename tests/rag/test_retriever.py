@@ -30,6 +30,7 @@ def mock_retriever(mocker) -> KnowledgeRetriever:
     ]
     retriever.embeddings = np.random.rand(4, 1536) # 4 чанка, 1536 измерений
     retriever.client = MagicMock() # Нам не нужен клиент, так как мы мокаем cosine_similarity
+    retriever.openai_client = MagicMock()
 
     # 4. Инициализируем BM25, как это делается в методе load()
     tokenized_corpus = [chunk["text"].split(" ") for chunk in retriever.chunks]
@@ -54,25 +55,28 @@ def test_retriever_ranking_logic(
     """
     # Arrange
     num_chunks = len(mock_retriever.chunks)
-    mock_similarities = np.linspace(0, 1, num_chunks) # [0.0, 0.25, 0.5, 1.0]
-    np.random.shuffle(mock_similarities) # Перемешиваем
-
+    
     # Ищем индекс нужного чанка и ставим ему максимальную схожесть
     target_index = [i for i, c in enumerate(mock_retriever.chunks) if c["source"] == expected_source][0]
-    mock_similarities[target_index] = 1.1 # Гарантированно максимальное значение
+    
+    # Мокаем _get_embedding, чтобы он возвращал предопределенный вектор для запроса
+    # и разные векторы для чанков, где у целевого чанка будет наибольшая схожесть
+    mock_query_embedding = np.random.rand(1536)
+    
+    # Создаем моки для эмбеддингов чанков
+    mock_chunk_embeddings = np.random.rand(num_chunks, 1536)
+    # Устанавливаем эмбеддинг целевого чанка так, чтобы он был идентичен запросу
+    mock_chunk_embeddings[target_index] = mock_query_embedding
+    mock_retriever.embeddings = mock_chunk_embeddings
 
-    mocker.patch(
-        'app.rag.retriever.cosine_similarity',
-        return_value=np.array([mock_similarities])
-    )
+    mocker.patch('app.rag.retriever.KnowledgeRetriever._get_embedding', return_value=mock_query_embedding)
+
     # Мокаем BM25 так, чтобы он не возвращал результатов и не влиял на фьюжн
-    mocker.patch.object(mock_retriever, '_keyword_search', return_value=[])
-
-    # Так как `retrieve` вызывает `_get_embedding`, который вызывает `client`,
-    # нам достаточно замокать вызов клиента.
-    mock_retriever.client.embeddings.create.return_value = MagicMock(
-        data=[MagicMock(embedding=np.random.rand(1536).tolist())]
-    )
+    mock_retriever.bm25_index = MagicMock()
+    mocker.patch.object(mock_retriever.bm25_index, 'get_scores', return_value=np.zeros(num_chunks))
+    
+    # Мокаем CrossEncoder, чтобы он не пытался скачаться и просто возвращал "как есть"
+    mock_retriever.cross_encoder = None
     
     # Act
     retrieved_chunks = mock_retriever.retrieve(query, top_k=1)

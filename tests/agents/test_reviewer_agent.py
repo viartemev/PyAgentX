@@ -2,8 +2,10 @@
 
 import pytest
 from unittest.mock import MagicMock, patch
+import json
 
 from app.agents.roles.reviewer_agent import ReviewerAgent
+from app.rag.retriever import KnowledgeRetriever
 
 @pytest.fixture
 def mock_retriever_fixture():
@@ -39,7 +41,14 @@ def test_reviewer_agent_uses_rag_context(mock_retriever_fixture, mocker):
     code_to_review = "my_variable = 1"
     
     # Mock the model's response to stop the execution loop after one turn
-    mocker.patch.object(agent.client.chat.completions, 'create', return_value=MagicMock())
+    # Создаем корректную структуру ответа, которую ожидает json.loads
+    mock_response_content = json.dumps({
+        "thought": "The user wants me to review code. I will provide a final answer.",
+        "answer": "The code `my_variable = 1` looks simple and correct."
+    })
+    mock_completion = MagicMock()
+    mock_completion.choices[0].message.content = mock_response_content
+    mocker.patch.object(agent.client.chat.completions, 'create', return_value=mock_completion)
 
     # Act
     # Запускаем execute_task, который теперь содержит логику обогащения промпта
@@ -68,7 +77,8 @@ def test_reviewer_agent_uses_rag_context(mock_retriever_fixture, mocker):
         use_rag=True,
         api_key="fake_api_key",
     )
-    mocker.patch.object(agent_no_knowledge.client.chat.completions, 'create', return_value=MagicMock())
+    # Применяем тот же самый мок и ко второму агенту
+    mocker.patch.object(agent_no_knowledge.client.chat.completions, 'create', return_value=mock_completion)
 
     agent_no_knowledge.execute_task(briefing=code_to_review)
     system_prompt_no_knowledge = agent_no_knowledge.conversation_history[0]['content']

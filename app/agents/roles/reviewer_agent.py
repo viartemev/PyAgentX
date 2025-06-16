@@ -1,7 +1,13 @@
 """Reviewer Agent."""
-from app.agents.agent import Agent
+from app.agents.agent import Agent, REACT_SYSTEM_PROMPT
 from app.agents.tools import (
     read_file_tool, read_file_tool_def,
+)
+
+# Custom prompt for Reviewer
+REVIEWER_SYSTEM_PROMPT = REACT_SYSTEM_PROMPT.replace(
+    "You are a smart, autonomous AI agent.",
+    "You are a Senior Software Engineer, a meticulous code reviewer."
 )
 
 class ReviewerAgent(Agent):
@@ -13,13 +19,9 @@ class ReviewerAgent(Agent):
             goal=goal,
             **kwargs,
         )
+        self.system_prompt_template = REVIEWER_SYSTEM_PROMPT
         # Self-register tools
         self.add_tool(read_file_tool, read_file_tool_def)
 
-        self.system_prompt = (
-            "You are a Senior Software Engineer acting as a code reviewer. "
-            "Your task is to provide a thorough review of the code based on the "
-            "provided file path. Use your available tools to read the file content.\n\n"
-            "If the code meets all standards, respond with only the word 'LGTM'.\n"
-            "Otherwise, provide clear, constructive feedback on what needs to be improved."
-        )
+        # The system_prompt is now handled by the base Agent class.
+        # Specific instructions can be added to the 'goal' in the config file.

@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from unstructured.partition.md import partition_md
 from rank_bm25 import BM25Okapi
+from semchunk.chunker import SemanticChunker
 
 # --- Configuration ---
 load_dotenv()
@@ -38,6 +39,17 @@ if not api_key:
 client = OpenAI(api_key=api_key)
 
 tokenizer = tiktoken.get_encoding("cl100k_base")
+# Initialize the semantic chunker
+semantic_chunker = SemanticChunker(
+    embed_model=client,
+    model_name=EMBEDDING_MODEL,
+    max_chunk_size=TEXT_CHUNK_MAX_TOKENS,
+    # The 'breakpoint_percentile_threshold' is a key parameter to tune.
+    # It determines how different two sentences must be to create a split.
+    # Lower value = more splits, higher value = fewer splits.
+    # Let's start with a value that often works well.
+    breakpoint_percentile_threshold=90
+)
 
 def load_and_partition_documents(directory: Path) -> List[Dict[str, Any]]:
     """
@@ -71,48 +83,30 @@ def load_and_partition_documents(directory: Path) -> List[Dict[str, Any]]:
             logging.error(f"Failed to process {file_path}: {e}")
     return documents
 
-def chunk_text(
-    doc: Dict[str, Any],
-    max_tokens: int = TEXT_CHUNK_MAX_TOKENS,
-) -> List[Dict[str, Any]]:
-    """Splits a document into smaller, semantically meaningful chunks."""
-    chunks = []
-    doc_text = doc["text"]
-    source_name = doc["source"]
-    metadata = doc["metadata"]
-
-    header_splits = re.split(r'(^## .+$|^### .+$)', doc_text, flags=re.MULTILINE)
-    texts_to_process = [header_splits[0]]
-    if len(header_splits) > 1:
-        texts_to_process.extend([h + c for h, c in zip(header_splits[1::2], header_splits[2::2])])
-
-    chunk_id_counter = 0
-    for text_block in texts_to_process:
-        if not text_block.strip():
-            continue
-        paragraphs = [p.strip() for p in text_block.split('\n\n') if p.strip()]
-        for paragraph in paragraphs:
-            sentences = re.split(r'(?<=[.!?])\s+', paragraph)
-            current_chunk = ""
-            for sentence in sentences:
-                if not sentence:
-                    continue
-                if len(tokenizer.encode(current_chunk + " " + sentence)) <= max_tokens:
-                    current_chunk += " " + sentence
-                else:
-                    if current_chunk:
-                        # Add metadata to each chunk
-                        chunk_metadata = metadata.copy()
-                        chunk_metadata["chunk_id"] = f"{source_name}_{chunk_id_counter}"
-                        chunks.append({"text": current_chunk.strip(), "source": source_name, "metadata": chunk_metadata})
-                        chunk_id_counter += 1
-                    current_chunk = sentence
-            if current_chunk:
-                chunk_metadata = metadata.copy()
-                chunk_metadata["chunk_id"] = f"{source_name}_{chunk_id_counter}"
-                chunks.append({"text": current_chunk.strip(), "source": source_name, "metadata": chunk_metadata})
-                chunk_id_counter += 1
-    return chunks
+def semantic_chunk_document(doc: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    Splits a document into semantically coherent chunks using semchunk.
+    """
+    logging.info(f"Semantically chunking '{doc['source']}'...")
+    try:
+        # The chunker returns a list of text strings
+        chunk_texts = semantic_chunker.chunk(doc["text"])
+        
+        chunks_with_metadata = []
+        for i, chunk_text in enumerate(chunk_texts):
+            chunk_metadata = doc["metadata"].copy()
+            chunk_metadata["chunk_id"] = f"{doc['source']}_{i}"
+            chunks_with_metadata.append({
+                "text": chunk_text,
+                "source": doc["source"],
+                "metadata": chunk_metadata
+            })
+        
+        logging.info(f"Successfully created {len(chunks_with_metadata)} semantic chunks for '{doc['source']}'.")
+        return chunks_with_metadata
+    except Exception as e:
+        logging.error(f"Failed to chunk document {doc['source']}: {e}", exc_info=True)
+        return []
 
 def create_embeddings(texts: List[str]) -> np.ndarray:
     """Creates embeddings for a list of texts using OpenAI API."""
@@ -132,7 +126,8 @@ def main():
         return
     all_chunks_with_metadata = []
     for doc in documents:
-        doc_chunks = chunk_text(doc)
+        # Use the new semantic chunking function
+        doc_chunks = semantic_chunk_document(doc)
         all_chunks_with_metadata.extend(doc_chunks)
     if not all_chunks_with_metadata:
         logging.warning("Could not create any chunks from the documents. Exiting.")

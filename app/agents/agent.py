@@ -16,32 +16,61 @@ from app.agents.tools import (
     read_file_tool, read_file_tool_def,
     list_files_tool, list_files_tool_def,
 )
+from app.agents.web_search_tool import web_search_tool, web_search_tool_def
+from app.agents.memory_tool import save_memory_tool, save_memory_tool_def
+from app.memory.memory_manager import MemoryManager
+from app.safety.custom_guardrails import CustomGuardrailManager
 
-# Новый, улучшенный системный промпт, превращающий агента в программиста.
-SYSTEM_PROMPT = """
-Ты — автономный AI-агент, способный выполнять сложные задачи, используя доступные инструменты.
-Твоя цель — успешно завершить поставленную задачу, шаг за шагом.
+class ToolExecutionError(Exception):
+    """Custom exception for errors during tool execution."""
+    pass
 
-# ПРАВИЛА ВЗАИМОДЕЙСТВИЯ:
-1.  **АНАЛИЗ**: Внимательно изучи предоставленный тебе контекст и задачу.
-2.  **ПЛАН**: Составь внутренний план действий. Какой инструмент использовать первым?
-3.  **ДЕЙСТВИЕ**: Вызови выбранный инструмент с правильными аргументами.
-4.  **РЕЗУЛЬТАТ**: Изучи результат вызова инструмента.
-5.  **ЦИКЛ**: Повторяй шаги 1-4, пока не достигнешь конечной цели. Когда задача будет полностью выполнена, сообщи об этом, предоставив финальный результат.
+# Новый системный промпт, основанный на ReAct (Reason + Act)
+REACT_SYSTEM_PROMPT = """
+You are a smart, autonomous AI agent. Your name is {agent_name}, and your role is {agent_role}.
+Your ultimate goal is: {agent_goal}.
 
-# ВАЖНЫЕ ИНСТРУКЦИИ ПО РАБОТЕ:
+You operate in a loop of Thought, Action, and Observation.
+At each step, you MUST respond in a specific JSON format. Your entire response must be a single JSON object.
 
-## 1. Работа с файловой системой:
--   **Абсолютные импорты**: При написании Python кода всегда используй абсолютные импорты от корня проекта. Корень проекта - это директория, где лежит `main.py`. Например: `from app.agents.tools import read_file_tool`. **НИКОГДА** не используй относительные импорты (`from .. import ...`) или хаки с `sys.path`.
--   **Редактирование файлов**: Инструмент `edit_file_tool` имеет два режима:
-    -   `mode='overwrite'` (по умолчанию): **Полностью перезаписывает** файл. Используй с осторожностью.
-    -   `mode='append'`: **Добавляет контент в конец файла**. Используй этот режим, когда тебе нужно добавить новую функцию, класс или текст в уже существующий файл, не удаляя его содержимое.
+1.  **Thought**: First, think about your plan. Analyze the user's request, your goal, and the previous steps. Describe your reasoning for the current action. This is a mandatory field.
 
-## 2. Мышление и логика:
--   **Код прежде тестов**: Если твоя цель — написать функцию и тесты к ней, всегда сначала полностью реализуй **корректную и финальную** логику самой функции. Только после этого приступай к написанию тестов. Не тестируй заготовки или неполный код.
--   Будь методичен. Не торопись.
--   Если результат не соответствует ожиданиям, попробуй другой подход.
--   Если ты застрял, сделай шаг назад и пересмотри свой план.
+2.  **Action** or **Answer**: Based on your thought, you must choose ONE of the following:
+    a. `action`: An object representing the tool to use. It must contain:
+       - `name`: The name of the tool to execute.
+       - `input`: An object with the parameters for the tool.
+    b. `answer`: A final, comprehensive answer to the user's request. Use this ONLY when the task is fully complete.
+
+# AVAILABLE TOOLS:
+You have access to the following tools. Use them to gather information and perform actions.
+
+{tools_description}
+
+# LONG-TERM MEMORY:
+Before you begin, here are some facts you have previously saved to your long-term memory.
+Use them to inform your decisions, but do not state them unless relevant.
+
+{memory_context}
+
+# EXAMPLE OF A SINGLE STEP:
+
+```json
+{{
+  "thought": "I need to understand the project structure first. I'll list the files in the current directory.",
+  "action": {{
+    "name": "list_files_tool",
+    "input": {{
+      "path": "."
+    }}
+  }}
+}}
+```
+
+# IMPORTANT RULES:
+- Your ENTIRE output MUST be a single, valid JSON object. Do not add any text before or after the JSON.
+- You must choose either `action` or `answer`, not both.
+- The `thought` field is always required.
+- Think step by step. Your goal is to complete the task, not just use tools.
 """
 
 # Настройка логирования
@@ -74,11 +103,18 @@ class Agent:
         self.tool_definitions: List[Dict[str, Any]] = []
         self.conversation_history: List[Dict[str, Any]] = []
         self.max_iterations = max_iterations
-        self.system_prompt = "Ты — универсальный AI-ассистент."
+        self.system_prompt_template = REACT_SYSTEM_PROMPT
+
+        # Initialize Memory Manager
+        self.memory_manager = MemoryManager()
+        # Initialize Guardrails
+        self.guardrail_manager = CustomGuardrailManager(api_key=api_key)
 
         # Add default tools
         self.add_tool(read_file_tool, read_file_tool_def)
         self.add_tool(list_files_tool, list_files_tool_def)
+        self.add_tool(web_search_tool, web_search_tool_def)
+        self.add_tool(save_memory_tool, save_memory_tool_def)
         
         # RAG specific attributes
         self.use_rag = use_rag
@@ -159,6 +195,15 @@ class Agent:
         logging.info(f"Knowledge context added for agent '{self.name}'.")
         return knowledge_context
 
+    def _get_memory_context(self) -> str:
+        """Retrieves relevant facts from long-term memory."""
+        recent_facts = self.memory_manager.get_recent_facts(limit=10)
+        if not recent_facts:
+            return "No relevant facts found in memory."
+        
+        formatted_facts = "\n".join([f"- {fact}" for fact in recent_facts])
+        return f"--- RELEVANT FACTS ---\n{formatted_facts}\n----------------------"
+
     def _execute_tool(self, tool_name: str, tool_args: Dict[str, Any]) -> Any:
         """Выполняет указанный инструмент с аргументами."""
         if tool_name in self.tools:
@@ -168,10 +213,29 @@ class Agent:
                 return result
             except Exception as e:
                 logging.error("Ошибка при выполнении инструмента '%s': %s", tool_name, e, exc_info=True)
-                return f"Ошибка: Не удалось выполнить инструмент '{tool_name}'. Причина: {e}"
+                # Выбрасываем кастомное исключение, чтобы его можно было поймать выше
+                raise ToolExecutionError(f"Error: Failed to execute tool '{tool_name}'. Reason: {e}")
         else:
             logging.warning("Попытка вызова неизвестного инструмента: '%s'", tool_name)
-            return f"Ошибка: Инструмент '{tool_name}' не найден."
+            raise ToolExecutionError(f"Error: Tool '{tool_name}' not found.")
+
+    def _get_tools_description(self) -> str:
+        """Generates a description of available tools for the system prompt."""
+        if not self.tool_definitions:
+            return "No tools available."
+        
+        desc = []
+        for tool in self.tool_definitions:
+            func_desc = tool.get('function', {})
+            params_desc = func_desc.get('parameters', {}).get('properties', {})
+            
+            # Описание параметров
+            params_str = ", ".join([f"{name}: {info.get('type')}" for name, info in params_desc.items()])
+            
+            desc.append(
+                f"- `{func_desc.get('name', 'N/A')}({params_str})`: {func_desc.get('description', 'No description.')}"
+            )
+        return "\n".join(desc)
 
     def _get_user_input(self) -> Optional[str]:
         """Обрабатывает получение ввода от пользователя."""
@@ -182,128 +246,143 @@ class Agent:
         except EOFError:
             return None
 
-    def _get_model_response(self) -> ChatCompletionMessage:
+    def _get_model_response(self) -> str:
         """
-        Отправляет текущую историю беседы в OpenAI и возвращает ответ модели.
+        Отправляет текущую историю беседы в OpenAI и возвращает текстовый ответ модели.
         """
         try:
-            logging.info(f"Отправка запроса в OpenAI с {len(self.conversation_history)} сообщениями.")
+            logging.info(f"Sending request to OpenAI with {len(self.conversation_history)} messages.")
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=self.conversation_history,
-                tools=self.get_openai_tools(),
-                tool_choice="auto",
+                # Убираем tools и tool_choice, так как теперь мы парсим JSON
             )
-            return response.choices[0].message
+            return response.choices[0].message.content or ""
         except Exception as e:
-            logging.error(f"Ошибка при вызове OpenAI API: {e}", exc_info=True)
-            # Возвращаем "пустое" сообщение с контентом об ошибке, чтобы цикл мог его обработать
-            return ChatCompletionMessage(role="assistant", content=f"Произошла ошибка API: {e}")
+            logging.error(f"Error calling OpenAI API: {e}", exc_info=True)
+            return json.dumps({
+                "thought": "An API error occurred. I cannot proceed.",
+                "answer": f"API Error: {e}"
+            })
 
     def execute_task(self, briefing: str) -> str:
         """
-        Выполняет одну задачу на основе предоставленного брифинга.
+        Выполняет одну задачу на основе предоставленного брифинга, используя ReAct цикл.
         """
-        logging.info(f"Агент {self.name} получил задачу.")
+        logging.info(f"Agent {self.name} received task.")
+
+        # 1. Prepare Prompts
+        knowledge_context = self._enrich_with_knowledge(self._create_rag_query(briefing)) if self.use_rag else ""
+        tools_description = self._get_tools_description()
+        memory_context = self._get_memory_context()
         
-        knowledge_context = ""
-        if self.use_rag:
-            focused_query = self._create_rag_query(briefing)
-            knowledge_context = self._enrich_with_knowledge(query=focused_query)
-        
-        # Системный промпт определяет "личность" агента, а брифинг - контекст задачи.
-        # Контекст из базы знаний добавляется в начало системного промпта.
-        final_system_prompt = f"{knowledge_context}\n{self.system_prompt}"
+        system_prompt = self.system_prompt_template.format(
+            agent_name=self.name,
+            agent_role=self.role,
+            agent_goal=self.goal,
+            tools_description=tools_description,
+            memory_context=memory_context
+        )
+
+        final_system_prompt = f"{knowledge_context}\n{system_prompt}"
 
         self.conversation_history = [
             {"role": "system", "content": final_system_prompt},
             {"role": "user", "content": briefing}
         ]
         
-        for _ in range(self.max_iterations):
-            response_message = self._get_model_response()
-
-            if response_message.content and "ошибка API" in response_message.content.lower():
-                return response_message.content
-
-            if not response_message.tool_calls:
-                final_answer = response_message.content or "Задача выполнена."
-                logging.info(f"Агент {self.name} завершил задачу с ответом: {final_answer}")
-                return final_answer
+        # 2. Start ReAct Loop
+        for i in range(self.max_iterations):
+            logging.info(f"--- Iteration {i+1}/{self.max_iterations} ---")
             
-            self.conversation_history.append(response_message)
-            
-            for tool_call in response_message.tool_calls:
-                tool_name = tool_call.function.name
-                tool_args_str = tool_call.function.arguments
-                logging.info(f"Вызов инструмента: {tool_name} с аргументами: {tool_args_str}")
-                
-                try:
-                    tool_args = json.loads(tool_args_str)
-                    tool_result = self._execute_tool(tool_name, tool_args)
-                except json.JSONDecodeError:
-                    error_msg = f"Ошибка: неверный JSON в аргументах инструмента: {tool_args_str}"
-                    logging.error(error_msg)
-                    tool_result = error_msg
-                
-                self.conversation_history.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "name": tool_name,
-                        "content": str(tool_result),
-                    }
+            model_response_str = self._get_model_response()
+            self.conversation_history.append({"role": "assistant", "content": model_response_str})
+
+            try:
+                parsed_response = json.loads(model_response_str)
+                thought = parsed_response.get("thought")
+                if thought:
+                    logging.info(f"🤖 Thought: {thought}")
+                else:
+                    raise ValueError("Missing 'thought' in response.")
+
+                if parsed_response.get("answer"):
+                    final_answer = parsed_response["answer"]
+                    # Validate final answer with guardrails before returning
+                    validated_answer = self.guardrail_manager.validate_and_format_response(final_answer)
+                    logging.info(f"✅ Agent {self.name} finished task with answer: {validated_answer}")
+                    return validated_answer
+
+                elif parsed_response.get("tool"):
+                    tool_name = parsed_response["tool"]["name"]
+                    tool_input = parsed_response["tool"]["input"]
+
+                    if not tool_name:
+                        raise ValueError("Missing 'name' in action.")
+
+                    logging.info(f"🛠️ Action: Calling tool '{tool_name}' with input: {tool_input}")
+                    tool_result = self._execute_tool(tool_name, tool_input)
+                    
+                    observation = f"Tool '{tool_name}' returned:\n```\n{tool_result}\n```"
+                    logging.info(f"👀 Observation: {observation}")
+                    self.conversation_history.append({"role": "user", "content": observation})
+                else:
+                    raise ValueError("Response must contain 'action' or 'answer'.")
+
+            except ToolExecutionError as e:
+                error_message = f"A tool failed to execute: {e}"
+                logging.error(error_message)
+                # Запускаем цикл рефлексии
+                reflection_prompt = (
+                    f"CRITICAL_ERROR: Your last action failed with the following error: '{e}'.\n"
+                    "You MUST analyze this error and the execution history to understand what went wrong.\n"
+                    "Then, devise a new plan. Either try a different approach, use a different tool, or modify the input to the tool.\n"
+                    "Your next 'thought' MUST explain how you are correcting your course of action."
                 )
+                self.conversation_history.append({"role": "user", "content": reflection_prompt})
+                continue # Продолжаем цикл, чтобы агент мог ответить на сообщение об ошибке
+
+            except (json.JSONDecodeError, ValueError) as e:
+                error_message = f"Error parsing model response: {e}. Response was: '{model_response_str}'"
+                logging.error(error_message)
+                # Даем агенту шанс исправиться
+                error_feedback = (
+                    f"Error: Your last response was not a valid JSON object. "
+                    f"Please correct your output to strictly follow the required format. "
+                    f"The `thought` field is mandatory, and you must include either an `action` or an `answer`. "
+                    f"Error details: {e}"
+                )
+                self.conversation_history.append({"role": "user", "content": error_feedback})
+                continue
         
-        warning_message = f"Агент {self.name} достиг лимита итераций ({self.max_iterations}), не завершив задачу."
+        warning_message = f"Agent {self.name} reached max iterations ({self.max_iterations}) without a final answer."
         logging.warning(warning_message)
+        # Validate the warning message as well, in case it contains sensitive info (less likely but good practice)
         return warning_message
 
     def run(self) -> None:
         """Запускает основной цикл общения с агентом в интерактивном режиме."""
-        print("Общение с агентом (используйте Ctrl+D или Ctrl+C для выхода)")
-        conversation: List[Dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT}]
-
-        try:
-            while True:
-                user_input = self._get_user_input()
-                if user_input is None:
+        print(f"Запуск агента '{self.name}' в интерактивном режиме. Введите 'exit' для завершения.")
+        
+        while True:
+            try:
+                user_input = input("\033[94mВы > \033[0m")
+                if user_input.lower() == 'exit':
+                    print("Завершение сеанса.")
                     break
                 
-                # Здесь мы используем ту же логику, что и в execute_task
-                # для выполнения пользовательского запроса.
-                # Это можно будет в будущем вынести в отдельный метод.
-                conversation.append({"role": "user", "content": user_input})
+                if not user_input.strip():
+                    continue
 
-                max_tool_calls = 5
-                for _ in range(max_tool_calls):
-                    response: ChatCompletionMessage = self.client.chat.completions.create(
-                        model=self.model,
-                        messages=conversation,
-                        tools=self.get_openai_tools(),
-                    ).choices[0].message
-                    
-                    if not response.tool_calls:
-                        assistant_response = response.content or ""
-                        print(f"\033[93m{self.name}:\033[0m {assistant_response}")
-                        conversation.append({"role": "assistant", "content": assistant_response})
-                        break
-                    
-                    conversation.append(response.model_dump())
+                # Используем execute_task для обработки ввода пользователя
+                print(f"\033[93m{self.name} >\033[0m", end="", flush=True)
+                final_response = self.execute_task(user_input)
+                
+                # Печатаем финальный ответ, который execute_task вернул
+                # execute_task уже логирует промежуточные шаги
+                print(final_response)
 
-                    for tool_call in response.tool_calls:
-                        tool_name = tool_call.function.name
-                        tool_args = json.loads(tool_call.function.arguments)
-                        tool_result = self._execute_tool(tool_name, tool_args)
-                        conversation.append({
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "name": tool_name,
-                            "content": tool_result,
-                        })
-                else:
-                    print(f"\033[91m{self.name}: Достигнут лимит вызовов инструментов.\033[0m")
-        
-        except (KeyboardInterrupt, EOFError):
-            print("\nВыход из чата.")
+            except (KeyboardInterrupt, EOFError):
+                print("\nЗавершение сеанса.")
+                break
 
