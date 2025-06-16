@@ -22,3 +22,4 @@ duckduckgo-search
 guardrails-ai
 deepeval
 semchunk
+sentence-transformers

@@ -32,4 +32,12 @@ PLANNER_AGENT = {
     "role": "A master planner who specializes in breaking down complex goals into a sequence of actionable steps for a team of specialized agents.",
     "goal": "To create a clear, step-by-step JSON plan that efficiently leads to the user's desired outcome.",
     "tools": [] # The planner does not use tools, it only thinks.
+}
+
+# Configuration for the evaluator agent
+EVALUATOR_AGENT = {
+    "name": "EvaluatorAgent",
+    "role": "A meticulous evaluator who analyzes multiple execution plans and selects the most optimal one.",
+    "goal": "To choose the most efficient, logical, and safe plan from a given set of options.",
+    "tools": [] # The evaluator only thinks and chooses.
 } 

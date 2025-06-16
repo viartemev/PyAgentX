@@ -8,11 +8,11 @@ from typing import Dict, Any, List
 
 from openai import OpenAI
 from app.factory.agent_factory import AgentFactory
-from app.agents.roles.standard_roles import ALL_ROLES, PLANNER_AGENT
+from app.agents.roles.standard_roles import ALL_ROLES, PLANNER_AGENT, EVALUATOR_AGENT
 
-# Updated prompt to ask for a multi-step plan
+# Updated prompt to ask for multiple plans (Tree-of-Thoughts)
 PLANNER_PROMPT_TEMPLATE = """
-You are a master planner for a team of AI agents. Your job is to create a step-by-step plan to accomplish the user's goal.
+You are a master planner for a team of AI agents. Your job is to create THREE DISTINCT step-by-step plans to accomplish the user's goal.
 
 **User's Goal:**
 "{user_goal}"
@@ -20,34 +20,56 @@ You are a master planner for a team of AI agents. Your job is to create a step-b
 **Available Team of Specialists:**
 {agents_description}
 
-Based on the goal, create a JSON array of tasks. Each task must have:
+Based on the goal, create a JSON object with a key "plans", containing a list of THREE different plans. Each plan is a JSON array of tasks. Each task must have:
 - `step`: An integer for the step number (e.g., 1, 2, 3).
-- `agent`: The name of the single most appropriate agent from the available team to perform this step.
-- `task`: A clear and specific instruction for what the chosen agent needs to do in this step.
+- `agent`: The name of the single most appropriate agent from the available team.
+- `task`: A clear and specific instruction for the agent.
 
 **Important Rules:**
-- The plan should be logical and sequential. The result of one step can be used by the next.
-- Choose agents whose roles best fit the task for each step.
-- Your entire response MUST be a single, valid JSON array.
+- The three plans should represent different strategies to achieve the goal.
+- Your entire response MUST be a single, valid JSON object like: `{{"plans": [[...plan1...], [...plan2...], [...plan3...]]}}`
 
 **Example:**
-[
-  {{
-    "step": 1,
-    "agent": "WebSearchExpert",
-    "task": "Find the official documentation for the 'pytest' library and provide a summary of its main purpose."
-  }},
-  {{
-    "step": 2,
-    "agent": "FileSystemExpert",
-    "task": "Based on the summary from the previous step, list all files in the 'tests/' directory to see how pytest is currently used."
-  }}
-]
+{{
+  "plans": [
+    [
+      {{"step": 1, "agent": "WebSearchExpert", "task": "Find official pytest docs."}}
+    ],
+    [
+      {{"step": 1, "agent": "FileSystemExpert", "task": "Check existing test files for pytest usage examples."}}
+    ],
+    [
+      {{"step": 1, "agent": "WebSearchExpert", "task": "Search for tutorials on how to use pytest with FastAPI."}}
+    ]
+  ]
+}}
+"""
+
+EVALUATOR_PROMPT_TEMPLATE = """
+You are a meticulous and rational Evaluator. Your task is to analyze a list of proposed plans and select the single best one to achieve the user's goal.
+
+**User's Goal:**
+"{user_goal}"
+
+**Proposed Plans:**
+{plans_json_string}
+
+**Evaluation Criteria:**
+1.  **Efficiency:** Which plan is likely to achieve the goal in the fewest steps?
+2.  **Robustness:** Which plan is least likely to fail or run into errors?
+3.  **Clarity:** Which plan is the most logical and straightforward?
+
+Based on your analysis, respond with a JSON object containing the index (starting from 0) of the best plan.
+
+**Example:**
+{{
+  "best_plan_index": 1
+}}
 """
 
 class Orchestrator:
     """
-    Creates a plan and manages its execution by a team of specialized agents.
+    Creates multiple plans, evaluates them, and manages the execution of the best one.
     """
     def __init__(self, api_key: str, model: str = "gpt-4o-mini"):
         self.client = OpenAI(api_key=api_key)
@@ -63,11 +85,11 @@ class Orchestrator:
             descriptions.append(f"- Agent: {name}\n  - Role: {config['role']}\n  - Best for: {config['goal']}")
         return "\n".join(descriptions)
 
-    def _create_plan(self, user_goal: str) -> List[Dict[str, Any]]:
+    def _create_plan(self, user_goal: str) -> List[List[Dict[str, Any]]]:
         """
-        Uses the PlannerAgent's logic to create a multi-step plan.
+        Uses the PlannerAgent's logic to create multiple distinct plans.
         """
-        logging.info(f"Orchestrator is creating a plan for the goal: '{user_goal}'")
+        logging.info(f"Orchestrator is creating multiple plans for the goal: '{user_goal}'")
         agents_description = self._get_agents_description()
         prompt = PLANNER_PROMPT_TEMPLATE.format(
             user_goal=user_goal,
@@ -80,12 +102,46 @@ class Orchestrator:
                 messages=[{"role": "user", "content": prompt}],
                 response_format={"type": "json_object"}
             )
-            plan = json.loads(response.choices[0].message.content or "[]")
-            logging.info(f"Plan created successfully: {plan}")
-            return plan
+            # We expect a dict with a "plans" key, which is a list of lists
+            plan_variants = json.loads(response.choices[0].message.content or "{}").get("plans", [])
+            logging.info(f"Planner proposed {len(plan_variants)} plans.")
+            return plan_variants
         except Exception as e:
-            logging.error(f"Failed to create a plan: {e}", exc_info=True)
+            logging.error(f"Failed to create plans: {e}", exc_info=True)
             return []
+
+    def _evaluate_and_select_plan(self, user_goal: str, plans: List[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+        """Uses the Evaluator's logic to select the best plan."""
+        if not plans:
+            return []
+        if len(plans) == 1:
+            logging.info("Only one plan was generated, selecting it by default.")
+            return plans[0]
+
+        logging.info("Evaluating plans to select the best one...")
+        prompt = EVALUATOR_PROMPT_TEMPLATE.format(
+            user_goal=user_goal,
+            plans_json_string=json.dumps(plans, indent=2)
+        )
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"}
+            )
+            choice = json.loads(response.choices[0].message.content or "{}")
+            best_plan_index = choice.get("best_plan_index", 0)
+
+            if 0 <= best_plan_index < len(plans):
+                logging.info(f"Evaluator selected plan #{best_plan_index + 1}.")
+                return plans[best_plan_index]
+            else:
+                logging.warning("Evaluator returned an invalid index, defaulting to the first plan.")
+                return plans[0]
+        except Exception as e:
+            logging.error(f"Failed to evaluate plans: {e}. Defaulting to the first plan.", exc_info=True)
+            return plans[0]
 
     def _create_briefing(self, goal: str, plan: List[Dict[str, Any]], current_task: Dict[str, Any]) -> str:
         """Creates a detailed context (briefing) for an agent."""
@@ -113,19 +169,24 @@ class Orchestrator:
 
     def run(self, user_goal: str) -> str:
         """
-        Runs the full orchestration process: plan, then execute step-by-step.
+        Runs the full orchestration process: generate multiple plans, evaluate them, and execute the best one.
         """
         self.execution_history = []
         
-        # 1. Create a plan
-        plan = self._create_plan(user_goal)
-        if not plan or not isinstance(plan, list):
-            return "I'm sorry, I couldn't create a valid plan to address your request. Please try rephrasing it."
+        # 1. Create multiple plan variants
+        plan_variants = self._create_plan(user_goal)
+        if not plan_variants:
+            return "I'm sorry, I couldn't create any plans to address your request. Please try rephrasing it."
 
-        print(f"\033[95mOrchestrator Plan:\033[0m\n{json.dumps(plan, indent=2)}")
+        # 2. Evaluate and select the best plan
+        best_plan = self._evaluate_and_select_plan(user_goal, plan_variants)
+        if not best_plan:
+             return "I'm sorry, I couldn't select a valid plan to execute. Please try again."
 
-        # 2. Execute the plan step-by-step
-        for task in plan:
+        print(f"\033[95mOrchestrator's Selected Plan:\033[0m\n{json.dumps(best_plan, indent=2)}")
+
+        # 3. Execute the selected plan step-by-step
+        for task in best_plan:
             agent_name = task.get("agent")
             task_description = task.get("task")
             
@@ -140,7 +201,7 @@ class Orchestrator:
             specialist_agent = self.agent_factory.create_agent(agent_config, self.api_key, self.model)
 
             # Create the briefing for the agent
-            briefing = self._create_briefing(user_goal, plan, task)
+            briefing = self._create_briefing(user_goal, best_plan, task)
             
             # Execute the task
             result = specialist_agent.execute_task(briefing)

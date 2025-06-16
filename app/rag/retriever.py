@@ -5,13 +5,14 @@ import logging
 import os
 import pickle
 from pathlib import Path
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 
 import numpy as np
 from dotenv import load_dotenv
 from openai import OpenAI
 from rank_bm25 import BM25Okapi
 from sklearn.metrics.pairwise import cosine_similarity
+from sentence_transformers import CrossEncoder
 
 # --- Configuration ---
 load_dotenv()
@@ -25,119 +26,103 @@ EMBEDDING_MODEL = "text-embedding-3-small"
 
 class KnowledgeRetriever:
     """
-    A class to retrieve relevant knowledge chunks from a database
-    using a hybrid search approach (vector search + keyword search).
+    Handles retrieving information from the knowledge base using a hybrid approach
+    (BM25 for sparse keyword search and dense vector search) followed by a
+    re-ranking step with a Cross-Encoder model.
     """
     def __init__(self):
-        """Initializes the retriever, loading all necessary data from disk."""
-        self.embeddings: np.ndarray = None
+        self.embeddings: Optional[np.ndarray] = None
         self.chunks: List[Dict[str, Any]] = []
-        self.bm25: BM25Okapi = None
+        self.bm25_index: Optional[BM25Okapi] = None
+        self.cross_encoder: Optional[CrossEncoder] = None
+        self.openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         self._load_knowledge_base()
-        
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY is not set for the retriever.")
-        self.client = OpenAI(api_key=api_key)
 
     def _load_knowledge_base(self):
-        """Loads embeddings, text chunks, and BM25 index from disk."""
-        logging.info("Loading knowledge base...")
+        """Loads all necessary files for the retriever from the db directory."""
         if not all([EMBEDDINGS_FILE.exists(), CHUNKS_FILE.exists(), BM25_INDEX_FILE.exists()]):
-            msg = (
-                f"Knowledge base file not found. Please run "
-                f"'scripts/build_knowledge_base.py' first."
-            )
-            logging.error(msg)
-            raise FileNotFoundError(msg)
+            logging.warning("Knowledge base files not found. Please run build_knowledge_base.py.")
+            return
 
+        logging.info("Loading knowledge base...")
+        self.embeddings = np.load(EMBEDDINGS_FILE)
+        with open(CHUNKS_FILE, "r", encoding="utf-8") as f:
+            self.chunks = json.load(f)
+        with open(BM25_INDEX_FILE, "rb") as f:
+            self.bm25_index = pickle.load(f)
+        
+        # Load the Cross-Encoder model
         try:
-            self.embeddings = np.load(EMBEDDINGS_FILE)
-            with open(CHUNKS_FILE, "r", encoding="utf-8") as f:
-                self.chunks = json.load(f)
-            with open(BM25_INDEX_FILE, "rb") as f:
-                self.bm25 = pickle.load(f)
-            logging.info(
-                f"Knowledge base loaded successfully. "
-                f"({len(self.chunks)} chunks, BM25 index, Embeddings)"
-            )
+            self.cross_encoder = CrossEncoder('cross-encoder/ms-marco-minilm-l-6-v2', max_length=512)
+            logging.info("Cross-Encoder model loaded successfully.")
         except Exception as e:
-            logging.error(f"Failed to load knowledge base: {e}")
-            raise
+            logging.error(f"Failed to load Cross-Encoder model: {e}", exc_info=True)
+            self.cross_encoder = None
+        
+        logging.info(f"Knowledge base loaded successfully ({len(self.chunks)} chunks).")
 
-    def _vector_search(self, query: str, k: int) -> List[Tuple[int, float]]:
-        """Performs a pure vector search."""
-        response = self.client.embeddings.create(input=[query], model=EMBEDDING_MODEL)
-        query_embedding = np.array([response.data[0].embedding])
-        similarities = cosine_similarity(query_embedding, self.embeddings).flatten()
-        top_k_indices = np.argsort(similarities)[-k:][::-1]
-        return [(idx, similarities[idx]) for idx in top_k_indices]
+    def _get_embedding(self, text: str) -> np.ndarray:
+        """Helper to get embedding for a single text query."""
+        response = self.openai_client.embeddings.create(input=[text], model="text-embedding-3-small")
+        return np.array(response.data[0].embedding)
 
-    def _keyword_search(self, query: str, k: int) -> List[Tuple[int, float]]:
-        """Performs a pure keyword search using BM25."""
-        tokenized_query = query.lower().split(" ")
-        doc_scores = self.bm25.get_scores(tokenized_query)
-        top_k_indices = np.argsort(doc_scores)[-k:][::-1]
-        return [(idx, doc_scores[idx]) for idx in top_k_indices]
+    def _cosine_similarity(self, vec1: np.ndarray, vec2: np.ndarray) -> np.ndarray:
+        """Calculates cosine similarity between a vector and a matrix of vectors."""
+        vec1 = vec1.reshape(1, -1)
+        return (vec1 @ vec2.T) / (np.linalg.norm(vec1) * np.linalg.norm(vec2, axis=1))
 
-    def _reciprocal_rank_fusion(self, search_results: List[List[Tuple[int, float]]], k: int = 60) -> Dict[int, float]:
-        """Merges search results using Reciprocal Rank Fusion."""
-        fused_scores = {}
-        for result_list in search_results:
-            for rank, (doc_id, _) in enumerate(result_list):
-                if doc_id not in fused_scores:
-                    fused_scores[doc_id] = 0
-                fused_scores[doc_id] += 1 / (rank + k)
-        return fused_scores
-
-    def retrieve(
-        self, query: str, top_k: int = 5, filters: Dict[str, Any] = None
-    ) -> List[Dict[str, Any]]:
-        """
-        Retrieves the top_k most relevant chunks using hybrid search.
-        """
-        if self.embeddings is None or not self.chunks or not self.bm25:
-            logging.warning("Knowledge base is not fully loaded. Cannot retrieve.")
+    def retrieve(self, query: str, top_k: int = 5, filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        if not self.chunks or self.bm25_index is None or self.embeddings is None:
+            logging.warning("Knowledge base is not loaded. Cannot retrieve.")
             return []
 
-        # 1. Get results from both search methods
-        candidate_k = top_k * 10
-        vector_results = self._vector_search(query, candidate_k)
-        keyword_results = self._keyword_search(query, candidate_k)
-
-        # 2. Fuse the results
-        fused_scores = self._reciprocal_rank_fusion([vector_results, keyword_results])
+        # 1. Sparse Search (BM25)
+        tokenized_query = query.lower().split()
+        bm25_scores = self.bm25_index.get_scores(tokenized_query)
         
-        # 3. Sort by fused score
-        sorted_doc_ids = sorted(fused_scores.keys(), key=lambda id: fused_scores[id], reverse=True)
+        # 2. Dense Search (Vector)
+        query_embedding = self._get_embedding(query)
+        embedding_scores = self._cosine_similarity(query_embedding, self.embeddings).flatten()
 
-        # 4. Filter candidates based on metadata
+        # 3. Hybrid Scoring (Combine and rank initial candidates)
+        # Normalize scores to be in a similar range before combining
+        norm_bm25_scores = bm25_scores / (np.max(bm25_scores) + 1e-9)
+        norm_embedding_scores = embedding_scores / (np.max(embedding_scores) + 1e-9)
+        combined_scores = 0.4 * norm_bm25_scores + 0.6 * norm_embedding_scores
+        
+        # Get a larger pool of candidates for re-ranking
+        candidate_pool_size = min(len(self.chunks), 25)
+        top_candidate_indices = np.argsort(combined_scores)[-candidate_pool_size:][::-1]
+
+        # 4. Re-ranking with Cross-Encoder
+        if self.cross_encoder:
+            cross_encoder_pairs = [[query, self.chunks[i]["text"]] for i in top_candidate_indices]
+            rerank_scores = self.cross_encoder.predict(cross_encoder_pairs, show_progress_bar=False)
+            
+            # Sort candidate indices based on the new re-ranking scores
+            reranked_indices = [idx for _, idx in sorted(zip(rerank_scores, top_candidate_indices), reverse=True)]
+            final_indices_unfiltered = reranked_indices
+            logging.info(f"Re-ranked {len(top_candidate_indices)} candidates.")
+        else:
+            logging.warning("Cross-encoder not available. Falling back to simple hybrid search.")
+            final_indices_unfiltered = top_candidate_indices
+
+        # 5. Filter results based on metadata
         final_indices = []
         required_tags = set(filters.get("tags", [])) if filters else set()
-        
-        for doc_id in sorted_doc_ids:
+        for idx in final_indices_unfiltered:
             if len(final_indices) >= top_k:
                 break
             
-            if required_tags:
-                chunk_tags = set(self.chunks[doc_id].get("metadata", {}).get("tags", []))
-                if required_tags.issubset(chunk_tags):
-                    final_indices.append(doc_id)
-            else:
-                final_indices.append(doc_id)
-
-        # 5. Format results
-        results = []
-        for idx in final_indices:
-            result = {
-                "text": self.chunks[idx]["text"],
-                "source": self.chunks[idx]["source"],
-                "metadata": self.chunks[idx].get("metadata", {}),
-                "score": fused_scores[idx], # Use the fused score
-            }
-            results.append(result)
-            
-        if not results:
-            logging.warning(f"No documents found for query '{query[:50]}...' with filters {filters}")
-
+            chunk_tags = set(self.chunks[idx].get("metadata", {}).get("tags", []))
+            if not required_tags or required_tags.issubset(chunk_tags):
+                final_indices.append(idx)
+        
+        # 6. Format and return final results
+        results = [{
+            "text": self.chunks[i]["text"],
+            "source": self.chunks[i]["source"],
+            "metadata": self.chunks[i].get("metadata", {}),
+        } for i in final_indices]
+        
         return results 
