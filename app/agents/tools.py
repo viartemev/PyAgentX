@@ -37,7 +37,7 @@ def list_files_tool(input_data: Dict[str, Any]) -> str:
         input_data (Dict[str, Any]): Словарь, который может содержать ключ 'path'
                                       с путем к директории. По умолчанию - текущая.
     Returns:
-        Отформатированное дерево файлов и директории в виде строки.
+        Отформатированное дерево файлов и директорий в виде строки.
     """
     path = input_data.get("path", ".")
     if not os.path.isdir(path):
@@ -58,66 +58,32 @@ def list_files_tool(input_data: Dict[str, Any]) -> str:
     return output.strip()
 
 
-def edit_file_tool(input_data: Dict[str, Any]) -> str:
+def write_to_file_tool(input_data: Dict[str, Any]) -> str:
     """
-    Создает, перезаписывает, добавляет или заменяет контент в файле.
-    - 'overwrite': Полностью перезаписывает файл.
-    - 'append': Добавляет контент в конец файла.
-    - 'replace': Заменяет один фрагмент строки на другой.
+    Создает новый файл или полностью перезаписывает существующий.
 
     Args:
         input_data (Dict[str, Any]): Словарь, содержащий:
             'path' (str): Путь к файлу.
-            'mode' (str): Режим работы ('overwrite', 'append', 'replace').
-            'content' (str, optional): Содержимое для 'overwrite' или 'append'.
-            'old_content' (str, optional): Исходный фрагмент для 'replace'.
-            'new_content' (str, optional): Новый фрагмент для 'replace'.
+            'content' (str): Содержимое для записи.
     """
     path = input_data.get("path")
-    mode = input_data.get("mode", "overwrite")
+    content = input_data.get("content")
 
-    if not path:
-        return "Ошибка: Аргумент 'path' обязателен."
-    if mode not in ['overwrite', 'append', 'replace']:
-        return "Ошибка: Недопустимый режим. Используйте 'overwrite', 'append' или 'replace'."
+    if not path or content is None:
+        return "Ошибка: Аргументы 'path' и 'content' обязательны."
 
     try:
+        # Убедимся, что директория для файла существует
         directory = os.path.dirname(path)
         if directory:
             os.makedirs(directory, exist_ok=True)
-
-        if mode == 'replace':
-            old_content = input_data.get("old_content")
-            new_content = input_data.get("new_content")
-            if old_content is None or new_content is None:
-                return "Ошибка: Для режима 'replace' необходимы 'old_content' и 'new_content'."
-            
-            with open(path, "r", encoding="utf-8") as f:
-                file_content = f.read()
-            
-            if old_content not in file_content:
-                return f"Ошибка: Исходный фрагмент 'old_content' не найден в файле '{path}'."
-
-            file_content = file_content.replace(old_content, new_content, 1)
-            
-            with open(path, "w", encoding="utf-8") as f:
-                f.write(file_content)
-            return f"Файл '{path}' успешно обновлен в режиме 'replace'."
-
-        else: # overwrite or append
-            content = input_data.get("content")
-            if content is None:
-                return f"Ошибка: Для режима '{mode}' обязателен аргумент 'content'."
-            
-            write_mode = "w" if mode == "overwrite" else "a"
-            with open(path, write_mode, encoding="utf-8") as f:
-                f.write(content)
-            return f"Файл '{path}' успешно обновлен в режиме '{mode}'."
-
-    except FileNotFoundError:
-        return f"Ошибка: Файл не найден по пути '{path}'."
+        
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(content)
+        return f"Файл '{path}' успешно создан/перезаписан."
     except Exception as e:
-        return f"Ошибка: Не удалось выполнить операцию с файлом '{path}': {e}"
+        return f"Ошибка: Не удалось записать в файл '{path}': {e}"
 
 
 def delete_file_tool(input_data: Dict[str, Any]) -> str:
@@ -212,21 +178,18 @@ list_files_tool_def = {
     },
 }
 
-edit_file_tool_def = {
+write_to_file_tool_def = {
     "type": "function",
     "function": {
-        "name": "edit_file_tool",
-        "description": "Создает, перезаписывает, добавляет или заменяет контент в файле. Режимы: 'overwrite', 'append', 'replace'.",
+        "name": "write_to_file_tool",
+        "description": "Создает новый файл или полностью перезаписывает существующий указанным контентом.",
         "parameters": {
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "Полный путь к файлу."},
-                "mode": {"type": "string", "enum": ["overwrite", "append", "replace"], "description": "Режим записи."},
-                "content": {"type": "string", "description": "Содержимое для 'overwrite' или 'append'."},
-                "old_content": {"type": "string", "description": "Исходный фрагмент для 'replace'."},
-                "new_content": {"type": "string", "description": "Новый фрагмент для 'replace'."},
+                "path": {"type": "string", "description": "Полный путь к файлу (включая имя файла)."},
+                "content": {"type": "string", "description": "Полное содержимое для записи в файл."},
             },
-            "required": ["path", "mode"],
+            "required": ["path", "content"],
         },
     },
 }

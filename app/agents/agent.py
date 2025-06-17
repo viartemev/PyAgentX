@@ -15,11 +15,30 @@ from app.rag.retriever import KnowledgeRetriever
 from app.agents.tools import (
     read_file_tool, read_file_tool_def,
     list_files_tool, list_files_tool_def,
+    write_to_file_tool, write_to_file_tool_def,
 )
 from app.agents.web_search_tool import web_search_tool, web_search_tool_def
 from app.agents.memory_tool import save_memory_tool, save_memory_tool_def
 from app.memory.memory_manager import MemoryManager
 from app.safety.custom_guardrails import CustomGuardrailManager
+
+def _extract_json_from_response(response_text: str) -> Optional[str]:
+    """
+    Extracts a JSON object from a string that might be wrapped in markdown code blocks.
+    """
+    # Regex to find JSON wrapped in ```json ... ``` or just ``` ... ```
+    match = re.search(r'```(json\s*)?(?P<json>\{.*?\})```', response_text, re.DOTALL)
+    if match:
+        return match.group('json')
+    
+    # If no markdown block is found, assume the whole string is a JSON object
+    # and try to find the start of a JSON object.
+    first_brace = response_text.find('{')
+    last_brace = response_text.rfind('}')
+    if first_brace != -1 and last_brace != -1:
+        return response_text[first_brace:last_brace+1]
+        
+    return None
 
 class ToolExecutionError(Exception):
     """Custom exception for errors during tool execution."""
@@ -113,6 +132,7 @@ class Agent:
         # Add default tools
         self.add_tool(read_file_tool, read_file_tool_def)
         self.add_tool(list_files_tool, list_files_tool_def)
+        self.add_tool(write_to_file_tool, write_to_file_tool_def)
         self.add_tool(web_search_tool, web_search_tool_def)
         self.add_tool(save_memory_tool, save_memory_tool_def)
         
@@ -247,35 +267,31 @@ class Agent:
             return None
 
     def _get_model_response(self) -> str:
-        """
-        Отправляет текущую историю беседы в OpenAI и возвращает текстовый ответ модели.
-        """
+        """Получает и возвращает ответ от модели."""
+        logging.info(f"Sending request to OpenAI with {len(self.conversation_history)} messages.")
         try:
-            logging.info(f"Sending request to OpenAI with {len(self.conversation_history)} messages.")
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=self.conversation_history,
-                # Убираем tools и tool_choice, так как теперь мы парсим JSON
+                # tools=self.get_openai_tools(),
+                # tool_choice="auto",
+                temperature=0.1,
+                top_p=0.1,
+                response_format={"type": "json_object"}
             )
             return response.choices[0].message.content or ""
-        except Exception as e:
-            logging.error(f"Error calling OpenAI API: {e}", exc_info=True)
-            return json.dumps({
-                "thought": "An API error occurred. I cannot proceed.",
-                "answer": f"API Error: {e}"
-            })
+        except APIError as e:
+            logging.error("OpenAI API error: %s", e)
+            return f'{{"thought": "Encountered an API error. I should try again.", "action": {{"name": "wait", "input": {{"seconds": 2}}}}}}'
 
     def execute_task(self, briefing: str) -> str:
         """
-        Выполняет одну задачу на основе предоставленного брифинга, используя ReAct цикл.
+        Основной цикл выполнения задачи агентом.
         """
-        logging.info(f"Agent {self.name} received task.")
-
-        # 1. Prepare Prompts
-        knowledge_context = self._enrich_with_knowledge(self._create_rag_query(briefing)) if self.use_rag else ""
+        # 1. Формируем системный промпт
         tools_description = self._get_tools_description()
         memory_context = self._get_memory_context()
-        
+
         system_prompt = self.system_prompt_template.format(
             agent_name=self.name,
             agent_role=self.role,
@@ -284,81 +300,92 @@ class Agent:
             memory_context=memory_context
         )
 
-        final_system_prompt = f"{knowledge_context}\n{system_prompt}"
+        self.conversation_history = [{"role": "system", "content": system_prompt}]
+        self.conversation_history.append({"role": "user", "content": briefing})
 
-        self.conversation_history = [
-            {"role": "system", "content": final_system_prompt},
-            {"role": "user", "content": briefing}
-        ]
-        
-        # 2. Start ReAct Loop
+        # 2. Основной цикл Reason-Act
         for i in range(self.max_iterations):
             logging.info(f"--- Iteration {i+1}/{self.max_iterations} ---")
             
-            model_response_str = self._get_model_response()
-            self.conversation_history.append({"role": "assistant", "content": model_response_str})
-
+            # 3. Получаем ответ от модели
+            response_text = self._get_model_response()
+            
+            # --- Guardrails Input Check ---
+            # guardrail_verdict = self.guardrail_manager.check_input(response_text)
+            # if guardrail_verdict:
+            #     final_answer = f"Input check failed: {guardrail_verdict}"
+            #     logging.warning(final_answer)
+            #     self.conversation_history.append({"role": "assistant", "content": final_answer})
+            #     return final_answer
+            
+            # 4. Парсим JSON из ответа
+            json_response = None
             try:
-                parsed_response = json.loads(model_response_str)
-                thought = parsed_response.get("thought")
-                if thought:
-                    logging.info(f"🤖 Thought: {thought}")
-                else:
-                    raise ValueError("Missing 'thought' in response.")
+                # Используем новую функцию для извлечения JSON
+                cleaned_response = _extract_json_from_response(response_text)
+                if not cleaned_response:
+                    raise json.JSONDecodeError("No JSON object found in response", response_text, 0)
+                
+                json_response = json.loads(cleaned_response)
+                
+                self.conversation_history.append({"role": "assistant", "content": cleaned_response})
 
-                if parsed_response.get("answer"):
-                    final_answer = parsed_response["answer"]
-                    # Validate final answer with guardrails before returning
-                    validated_answer = self.guardrail_manager.validate_and_format_response(final_answer)
-                    logging.info(f"✅ Agent {self.name} finished task with answer: {validated_answer}")
-                    return validated_answer
+            except json.JSONDecodeError:
+                error_message = f"Error parsing model response: Expecting value: line 1 column 1 (char 0). Response was: '{response_text}'"
+                logging.error(error_message)
+                # Добавляем сообщение об ошибке в историю, чтобы модель могла исправиться
+                self.conversation_history.append({
+                    "role": "user", 
+                    "content": f"Your last response was not a valid JSON. Please correct your output to be a single JSON object. Error: {error_message}"
+                })
+                continue # Переходим к следующей итерации, чтобы модель могла исправиться
 
-                elif parsed_response.get("tool"):
-                    tool_name = parsed_response["tool"]["name"]
-                    tool_input = parsed_response["tool"]["input"]
+            # 5. Извлекаем мысль и действие/ответ
+            thought = json_response.get("thought")
+            action = json_response.get("action")
+            answer = json_response.get("answer")
 
-                    if not tool_name:
-                        raise ValueError("Missing 'name' in action.")
+            logging.info(f"Thought: {thought}")
 
-                    logging.info(f"🛠️ Action: Calling tool '{tool_name}' with input: {tool_input}")
-                    tool_result = self._execute_tool(tool_name, tool_input)
+            if answer:
+                logging.info(f"Final Answer: {answer}")
+                # --- Guardrails Output Check ---
+                # guardrail_verdict = self.guardrail_manager.check_output(answer)
+                # if guardrail_verdict:
+                #     final_answer = f"Output check failed: {guardrail_verdict}"
+                #     logging.warning(final_answer)
+                #     return final_answer
+                
+                return answer
+
+            if action:
+                tool_name = action.get("name")
+                tool_input = action.get("input", {})
+                
+                if tool_name and isinstance(tool_input, dict):
+                    logging.info(f"Action: {tool_name}({tool_input})")
+                    try:
+                        # 6. Выполняем инструмент
+                        tool_result = self._execute_tool(tool_name, tool_input)
+                        observation = f"Tool {tool_name} executed successfully. Result:\n{tool_result}"
+                    except ToolExecutionError as e:
+                        observation = str(e) # Используем сообщение из кастомного исключения
                     
-                    observation = f"Tool '{tool_name}' returned:\n```\n{tool_result}\n```"
-                    logging.info(f"👀 Observation: {observation}")
-                    self.conversation_history.append({"role": "user", "content": observation})
+                    logging.info(f"Observation: {observation}")
+                    
+                    # 7. Добавляем результат в историю для следующего шага
+                    self.conversation_history.append({"role": "user", "content": f"Observation: {observation}"})
                 else:
-                    raise ValueError("Response must contain 'action' or 'answer'.")
-
-            except ToolExecutionError as e:
-                error_message = f"A tool failed to execute: {e}"
-                logging.error(error_message)
-                # Запускаем цикл рефлексии
-                reflection_prompt = (
-                    f"CRITICAL_ERROR: Your last action failed with the following error: '{e}'.\n"
-                    "You MUST analyze this error and the execution history to understand what went wrong.\n"
-                    "Then, devise a new plan. Either try a different approach, use a different tool, or modify the input to the tool.\n"
-                    "Your next 'thought' MUST explain how you are correcting your course of action."
-                )
-                self.conversation_history.append({"role": "user", "content": reflection_prompt})
-                continue # Продолжаем цикл, чтобы агент мог ответить на сообщение об ошибке
-
-            except (json.JSONDecodeError, ValueError) as e:
-                error_message = f"Error parsing model response: {e}. Response was: '{model_response_str}'"
-                logging.error(error_message)
-                # Даем агенту шанс исправиться
-                error_feedback = (
-                    f"Error: Your last response was not a valid JSON object. "
-                    f"Please correct your output to strictly follow the required format. "
-                    f"The `thought` field is mandatory, and you must include either an `action` or an `answer`. "
-                    f"Error details: {e}"
-                )
-                self.conversation_history.append({"role": "user", "content": error_feedback})
-                continue
+                    logging.warning("Invalid action format in model response.")
+                    self.conversation_history.append({"role": "user", "content": "Observation: Invalid action format. Please provide a valid 'name' and 'input' for the action."})
+            else:
+                logging.warning("Model did not provide an 'action' or 'answer'.")
+                # Просим модель предоставить либо действие, либо финальный ответ
+                self.conversation_history.append({"role": "user", "content": "Observation: You must provide either an 'action' or a final 'answer'."})
         
-        warning_message = f"Agent {self.name} reached max iterations ({self.max_iterations}) without a final answer."
-        logging.warning(warning_message)
-        # Validate the warning message as well, in case it contains sensitive info (less likely but good practice)
-        return warning_message
+        final_answer = f"Agent {self.name} reached max iterations ({self.max_iterations}) without a final answer."
+        logging.warning(final_answer)
+        return final_answer
 
     def run(self) -> None:
         """Запускает основной цикл общения с агентом в интерактивном режиме."""
