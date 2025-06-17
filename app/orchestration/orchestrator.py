@@ -13,38 +13,61 @@ from app.agents.roles.standard_roles import ALL_ROLES
 # A new, simplified, and much more direct planner prompt.
 # This prompt is designed to generate a single, efficient plan.
 PLANNER_PROMPT_TEMPLATE = """
-You are an expert project planner. Your job is to create a single, efficient, step-by-step plan to accomplish the user's goal.
+You are an expert project planner and a senior software architect. Your job is to create a robust, production-ready, step-by-step plan to accomplish the user's goal.
 
 **User's Goal:**
 "{user_goal}"
 
-**Available Team of Specialists & Their Key Tools:**
-- **FileSystemExpert**: Ideal for file operations. Key tool: `write_to_file_tool(path, content)`.
-- **CodingAgent**: For writing and modifying Python code. Key tool: `write_to_file_tool(path, content)`.
-- **TestingAgent**: For running tests. Key tool: `run_tests_tool(path)`.
-- **ReviewerAgent**: For code reviews. Key tool: `read_file_tool(path)`.
+**Project Structure & Quality Standards:**
+- **Tool Directory**: All new tools MUST be appended to the existing file `app/agents/tools.py`. Do NOT create new files for tools.
+- **Test Directory**: All new tests for tools MUST be appended to the existing file `tests/agents/test_tools.py`. Do NOT create new files for tests.
+- **Code Quality**: All generated Python functions MUST include detailed Google-style docstrings explaining their purpose, arguments, and return values.
+- **Test Quality**: Tests MUST be written using `pytest`. Each feature MUST have multiple tests covering standard cases, edge cases (e.g., empty strings, null inputs, different data types), and potential failure modes.
+- **Mandatory Review**: Any plan that involves writing or modifying code MUST include a final step where the `ReviewerAgent` inspects the newly created files.
+
+**Available Team of Specialists & Their Exact Responsibilities:**
+- **CodingAgent**: Writes and modifies Python code. Can ONLY use `write_to_file_tool`, `read_file_tool`, and `list_files_tool`. Assign ALL code and test writing/modification tasks to this agent.
+- **TestingAgent**: Runs tests using `pytest`. Can ONLY use `run_tests_tool` and `read_file_tool`. It CANNOT write or modify files. Assign ONLY test execution tasks to this agent.
+- **ReviewerAgent**: Performs code reviews. Can ONLY use `read_file_tool`. It CANNOT write, modify, or test code. Assign ONLY file review tasks to this agent.
+- **FileSystemExpert**: Handles generic file operations. Can ONLY use `write_to_file_tool`, `read_file_tool`, and `list_files_tool`.
 
 **Your Task:**
 Create a JSON object with a key "plan" containing a list of tasks. Each task must have:
 - `step`: An integer for the step number.
-- `agent`: The name of the single most appropriate agent from the team.
-- `task`: A clear and specific instruction for that agent.
+- `agent`: The name of the single most appropriate agent from the team based on their exact responsibilities.
+- `task`: A clear and specific instruction for that agent, including full file paths and complete, high-quality code with docstrings.
 
 **CRITICAL RULES:**
-1.  **BE EFFICIENT:** Combine related actions. Instead of one step to create a file and another to write to it, create a SINGLE step: "Create the file 'file.txt' with the content '...'" and assign it to the appropriate agent.
-2.  **BE PRECISE:** The task description must contain all the necessary information for the agent to act. If the goal is to write to a file, the 'task' must include the content to be written.
-3.  **JSON ONLY:** Your entire response MUST be a single, valid JSON object.
+1.  **ADHERE TO STANDARDS:** Your plan MUST follow all project structure and quality standards defined above.
+2.  **CORRECT ASSIGNMENT:** Assign tasks ONLY to agents that have the tools and responsibilities to complete them.
+3.  **BE PRECISE:** The task description must contain all necessary information, including full code content.
+4.  **JSON ONLY:** Your entire response MUST be a single, valid JSON object.
 
-**Example:**
-Goal: "Create a file named 'hello.txt' and write 'Hello World' in it."
+**Example of a HIGH-QUALITY Plan:**
+Goal: "Create a Python tool to reverse a string."
 
 Your output:
 {{
   "plan": [
     {{
       "step": 1,
-      "agent": "FileSystemExpert",
-      "task": "Create the file 'hello.txt' and write the following content into it: Hello World"
+      "agent": "CodingAgent",
+      "task": "Read the content of 'app/agents/tools.py'. If the 'reverse_string_tool' function does not already exist, append the following code to the end of the file: \\n\\n# ... (existing code) ...\\n\\ndef reverse_string_tool(input_data: dict) -> str:\\n    '''Reverses a string.'''\\n    return input_data.get('text', '')[::-1]\\n\\nreverse_string_tool_def = {{...}} # (full tool definition here)"
+    }},
+    {{
+      "step": 2,
+      "agent": "CodingAgent",
+      "task": "Read the content of 'tests/agents/test_tools.py'. If tests for 'reverse_string_tool' do not already exist, append new tests to the end of the file."
+    }},
+    {{
+      "step": 3,
+      "agent": "TestingAgent",
+      "task": "Run all tests in 'tests/test_tools.py' to verify correctness of all tools, including the newly added one."
+    }},
+    {{
+      "step": 4,
+      "agent": "ReviewerAgent",
+      "task": "Review the final code in 'app/agents/tools.py' and 'tests/agents/test_tools.py' for quality and correctness."
     }}
   ]
 }}
@@ -60,13 +83,6 @@ class Orchestrator:
         self.agent_factory = AgentFactory()
         self.api_key = api_key
         self.execution_history: List[Dict[str, Any]] = []
-
-    def _get_agents_description(self) -> str:
-        """Creates a formatted string describing the available worker agents."""
-        descriptions = []
-        for name, config in ALL_ROLES.items():
-            descriptions.append(f"- Agent: {name}\n  - Role: {config['role']}\n  - Best for: {config['goal']}")
-        return "\n".join(descriptions)
 
     def _create_plan(self, user_goal: str) -> List[Dict[str, Any]]:
         """Creates a single, direct plan to achieve the user's goal."""
@@ -87,32 +103,6 @@ class Orchestrator:
         except Exception as e:
             logging.error(f"Failed to create a valid plan: {e}", exc_info=True)
             return []
-
-    def _create_briefing(self, goal: str, plan: List[Dict[str, Any]], current_task: Dict[str, Any]) -> str:
-        """Creates a detailed context (briefing) for an agent."""
-        history_log = ""
-        if not self.execution_history:
-            history_log = "This is the first step. No execution history yet."
-        else:
-            history_log = "Here are the results from the previous steps:\n"
-            for record in self.execution_history:
-                history_log += (
-                    f"- Step {record['step']} ({record['agent']}) completed.\n"
-                    f"  Task: {record['task']}\n"
-                    f"  Result: {record['result']}\n\n"
-                )
-
-        # The agent needs the full context to make good decisions.
-        return (
-            f"**Overall Goal:** {goal}\n\n"
-            f"**Full Plan:**\n{json.dumps(plan, indent=2)}\n\n"
-            f"**Execution History:**\n{history_log}\n"
-            f"-----------------------------------\n"
-            f"**Your Current Task (Step {current_task['step']}):**\n"
-            f"Your task is: \"{current_task['task']}\".\n\n"
-            f"Analyze the goal, plan, and history, then use your tools to execute your task and produce the required result. "
-            f"The 'task' description contains all the information you need."
-        )
 
     def run(self, user_goal: str) -> str:
         """
@@ -141,8 +131,19 @@ class Orchestrator:
             agent_config = ALL_ROLES[agent_name]
             specialist_agent = self.agent_factory.create_agent(agent_config, self.api_key, self.model)
 
-            briefing = self._create_briefing(user_goal, plan, task)
-            
+            # This briefing is now lean and focused. It does NOT contain the overall goal.
+            briefing = ""
+            if self.execution_history:
+                briefing += (
+                    "Here's a summary of what has been done so far:\n"
+                    + "\n".join([f"- {record['result']}" for record in self.execution_history])
+                )
+            briefing += (
+                f"\nYour specific, immediate task is: '{task_description}'.\n"
+                "Focus ONLY on completing this single task. Do not move on to other tasks. "
+                "Once you have completed your task, provide a 'Final Answer' with a summary of what you did."
+            )
+
             result = specialist_agent.execute_task(briefing)
 
             self.execution_history.append({

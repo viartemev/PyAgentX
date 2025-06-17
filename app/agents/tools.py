@@ -30,9 +30,8 @@ def read_file_tool(input_data: Dict[str, Any]) -> str:
 
 def list_files_tool(input_data: Dict[str, Any]) -> str:
     """
-    Рекурсивно выводит дерево файлов и директорий по указанному пути,
-    игнорируя служебные файлы/директории. Помогает понять структуру проекта.
-    
+    Выводит список файлов и директорий по указанному пути.
+
     Args:
         input_data (Dict[str, Any]): Словарь, который может содержать ключ 'path'
                                       с путем к директории. По умолчанию - текущая.
@@ -147,6 +146,30 @@ def run_tests_tool(input_data: Dict[str, Any]) -> str:
         return f"Критическая ошибка: Не удалось запустить тесты. Причина: {e}"
 
 
+def update_file_tool(input_data: Dict[str, Any]) -> str:
+    """
+    Appends content to an existing file. If the file doesn't exist, it creates it.
+
+    Args:
+        input_data (Dict[str, Any]): A dictionary containing:
+            'path' (str): The path to the file.
+            'content' (str): The content to append to the file.
+    """
+    path = input_data.get("path")
+    content = input_data.get("content")
+
+    if not path or content is None:
+        return "Error: 'path' and 'content' are required arguments."
+
+    try:
+        # 'a' mode appends to the file, and creates it if it doesn't exist.
+        with open(path, "a", encoding="utf-8") as f:
+            f.write("\n\n" + content)
+        return f"Content successfully appended to '{path}'."
+    except Exception as e:
+        return f"Error: Could not update file '{path}': {e}"
+
+
 # Определения инструментов (Tool Definitions)
 read_file_tool_def = {
     "type": "function",
@@ -222,4 +245,26 @@ run_tests_tool_def = {
             "required": [],
         },
     },
+}
+
+update_file_tool_def = {
+    "type": "function",
+    "function": {
+        "name": "update_file_tool",
+        "description": "Appends content to an existing file. Creates the file if it does not exist.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "The path to the file to be updated."
+                },
+                "content": {
+                    "type": "string",
+                    "description": "The content to append to the file."
+                }
+            },
+            "required": ["path", "content"]
+        }
+    }
 }
