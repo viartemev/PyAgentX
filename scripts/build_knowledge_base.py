@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from unstructured.partition.md import partition_md
 from rank_bm25 import BM25Okapi
-from semchunk.chunker import SemanticChunker
+import semchunk
 
 # --- Configuration ---
 load_dotenv()
@@ -38,18 +38,10 @@ if not api_key:
     raise ValueError("OPENAI_API_KEY is not set in the environment variables.")
 client = OpenAI(api_key=api_key)
 
+# Initialize the semantic chunker from isaacus-dev/semchunk
+# This chunker works with token counts, not embedding models.
 tokenizer = tiktoken.get_encoding("cl100k_base")
-# Initialize the semantic chunker
-semantic_chunker = SemanticChunker(
-    embed_model=client,
-    model_name=EMBEDDING_MODEL,
-    max_chunk_size=TEXT_CHUNK_MAX_TOKENS,
-    # The 'breakpoint_percentile_threshold' is a key parameter to tune.
-    # It determines how different two sentences must be to create a split.
-    # Lower value = more splits, higher value = fewer splits.
-    # Let's start with a value that often works well.
-    breakpoint_percentile_threshold=90
-)
+chunker = semchunk.chunkerify(tokenizer, TEXT_CHUNK_MAX_TOKENS)
 
 def load_and_partition_documents(directory: Path) -> List[Dict[str, Any]]:
     """
@@ -90,7 +82,7 @@ def semantic_chunk_document(doc: Dict[str, Any]) -> List[Dict[str, Any]]:
     logging.info(f"Semantically chunking '{doc['source']}'...")
     try:
         # The chunker returns a list of text strings
-        chunk_texts = semantic_chunker.chunk(doc["text"])
+        chunk_texts = chunker(doc["text"])
         
         chunks_with_metadata = []
         for i, chunk_text in enumerate(chunk_texts):

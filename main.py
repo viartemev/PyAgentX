@@ -28,8 +28,8 @@ def main():
 
     model = "gpt-4o-mini"
     
-    print("--- Multi-Agent System Initialized ---")
-    print("Enter your request. Type 'exit' to close.")
+    logging.info("--- Multi-Agent System Initialized ---")
+    logging.info("Enter your request. Type 'exit' to close.")
 
     orchestrator = Orchestrator(api_key=api_key, model=model)
 
@@ -37,7 +37,7 @@ def main():
         while True:
             user_query = input("\033[94mYou > \033[0m")
             if user_query.lower() in ['exit', 'quit']:
-                print("Shutting down...")
+                logging.info("Shutting down...")
                 break
             
             if not user_query.strip():
@@ -46,10 +46,10 @@ def main():
             # The orchestrator handles the entire process
             final_result = orchestrator.run(user_query)
             
-            print(f"\033[92mFinal Answer >\033[0m {final_result}")
+            logging.info(f"\033[92mFinal Answer >\033[0m {final_result}")
 
     except (KeyboardInterrupt, EOFError):
-        print("\nShutting down...")
+        logging.error("\nShutting down...")
 
 if __name__ == "__main__":
     main() 

@@ -1,74 +1,30 @@
 """
-Factory for creating agent teams from configuration.
+Factory for creating specialized agents.
 """
-import logging
-import yaml
-import os
-from importlib import import_module
-from typing import Dict, Tuple, Any, List
+from typing import Dict, Any
 
 from app.agents.agent import Agent
-from app.agents.roles.task_decomposer import TaskDecomposer
-from app.agents.tools import read_file_tool, read_file_tool_def, list_files_tool, list_files_tool_def
+from app.agents.tools import (
+    read_file_tool, read_file_tool_def,
+    list_files_tool, list_files_tool_def,
+    write_to_file_tool, write_to_file_tool_def,
+    update_file_tool, update_file_tool_def,
+    run_tests_tool, run_tests_tool_def
+)
 from app.agents.web_search_tool import web_search_tool, web_search_tool_def
 from app.agents.memory_tool import save_memory_tool, save_memory_tool_def
 
 # A mapping of tool names to their functions and definitions
+# This makes it easy to add tools to agents based on their config.
 AVAILABLE_TOOLS = {
     "read_file": (read_file_tool, read_file_tool_def),
     "list_files": (list_files_tool, list_files_tool_def),
+    "write_to_file": (write_to_file_tool, write_to_file_tool_def),
+    "update_file": (update_file_tool, update_file_tool_def),
+    "run_tests": (run_tests_tool, run_tests_tool_def),
     "web_search": (web_search_tool, web_search_tool_def),
     "save_memory": (save_memory_tool, save_memory_tool_def),
 }
-
-def load_config(path: str) -> dict:
-    """Loads a YAML configuration file."""
-    with open(path, 'r') as f:
-        return yaml.safe_load(f)
-
-def get_class_from_string(class_path: str):
-    """Dynamically imports a class from a string path."""
-    module_path, class_name = class_path.rsplit('.', 1)
-    module = import_module(module_path)
-    return getattr(module, class_name)
-
-def create_agent_team(main_config_path: str) -> Tuple[TaskDecomposer, Dict[str, Agent]]:
-    """
-    Creates and configures the agent team based on YAML files.
-
-    Args:
-        main_config_path (str): The path to the main configuration file.
-
-    Returns:
-        A tuple containing the TaskDecomposer and the dictionary of worker agents.
-    """
-    logging.info("Loading configurations from %s...", main_config_path)
-    main_config = load_config(main_config_path)
-    
-    workers = {}
-    api_key = os.getenv("OPENAI_API_KEY")
-    common_kwargs = {"api_key": api_key, "model": main_config.get('default_model', 'o4-mini')}
-
-    for agent_name, agent_info in main_config['agents'].items():
-        logging.info(f"Initializing {agent_name}...")
-        
-        agent_config_path = agent_info['config_path']
-        agent_config = load_config(agent_config_path)
-
-        agent_class = get_class_from_string(agent_info['_target_'])
-        
-        init_params = agent_config.copy()
-        init_params.update(common_kwargs)
-        
-        agent_instance = agent_class(**init_params)
-
-        # The logic for adding tools has been moved to the agent classes themselves.
-        # The factory is now cleaner and only responsible for instantiation.
-        
-        workers[agent_name] = agent_instance
-
-    task_decomposer = workers.pop("TaskDecomposer")
-    return task_decomposer, workers 
 
 class AgentFactory:
     """
@@ -84,8 +40,7 @@ class AgentFactory:
         Creates an agent based on a configuration dictionary.
 
         Args:
-            agent_config: A dictionary containing the agent's name, role, goal,
-                          and a list of tool names it should have.
+            agent_config: A dictionary containing the agent's name, role, and goal.
             api_key: The OpenAI API key.
             model: The name of the model to use.
 
@@ -97,6 +52,7 @@ class AgentFactory:
         goal = agent_config.get("goal", "To complete tasks efficiently.")
         tool_names = agent_config.get("tools", [])
 
+        # Create a base agent
         agent = Agent(
             name=name,
             role=role,
@@ -105,13 +61,16 @@ class AgentFactory:
             model=model
         )
 
-        # Clear default tools and add only the specified ones
-        agent.tools = {}
-        agent.tool_definitions = []
-        
+        # Add only the tools specified in the agent's configuration
         for tool_name in tool_names:
             if tool_name in AVAILABLE_TOOLS:
                 tool_func, tool_def = AVAILABLE_TOOLS[tool_name]
                 agent.add_tool(tool_func, tool_def)
+            else:
+                # This could be a configuration error, but we'll just log it for now.
+                print(f"Warning: Tool '{tool_name}' not found for agent '{name}'.")
+
+        # The 'save_memory' tool is essential for all agents to learn.
+        agent.add_tool(save_memory_tool, save_memory_tool_def)
         
         return agent 
